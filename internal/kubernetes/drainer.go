@@ -35,8 +35,8 @@ const (
 	DefaultMaxGracePeriod   time.Duration = 8 * time.Minute
 	DefaultEvictionOverhead time.Duration = 30 * time.Second
 
-	kindDaemonSet = "DaemonSet"
-
+	kindDaemonSet             = "DaemonSet"
+	kindStatefulSet           = "StatefulSet"
 	ConditionDrainedScheduled = "DrainScheduled"
 )
 
