@@ -33,9 +33,10 @@ const (
 	// DefaultDrainBuffer is the default minimum time between node drains.
 	DefaultDrainBuffer = 10 * time.Minute
 
-	eventReasonCordonStarting  = "CordonStarting"
-	eventReasonCordonSucceeded = "CordonSucceeded"
-	eventReasonCordonFailed    = "CordonFailed"
+	eventReasonCordonStarting       = "CordonStarting"
+	eventReasonCordonBlockedByLimit = "CordonBlockedByLimit"
+	eventReasonCordonSucceeded      = "CordonSucceeded"
+	eventReasonCordonFailed         = "CordonFailed"
 
 	eventReasonDrainScheduled        = "DrainScheduled"
 	eventReasonDrainSchedulingFailed = "DrainSchedulingFailed"
@@ -55,9 +56,11 @@ var (
 	MeasureNodesCordoned       = stats.Int64("draino/nodes_cordoned", "Number of nodes cordoned.", stats.UnitDimensionless)
 	MeasureNodesDrained        = stats.Int64("draino/nodes_drained", "Number of nodes drained.", stats.UnitDimensionless)
 	MeasureNodesDrainScheduled = stats.Int64("draino/nodes_drainScheduled", "Number of nodes drain scheduled.", stats.UnitDimensionless)
+	MeasureLimitedCordon       = stats.Int64("draino/cordon_limited", "Number of cordon activities that have been blocked due to limits.", stats.UnitDimensionless)
 
 	TagNodeName, _ = tag.NewKey("node_name")
 	TagResult, _   = tag.NewKey("result")
+	TagReason, _   = tag.NewKey("reason")
 )
 
 // A DrainingResourceEventHandler cordons and drains any added or updated nodes.
@@ -170,6 +173,15 @@ func (h *DrainingResourceEventHandler) cordon(n *core.Node) {
 	log.Debug("Cordoning")
 	h.eventRecorder.Event(nr, core.EventTypeWarning, eventReasonCordonStarting, "Cordoning node")
 	if err := h.cordonDrainer.Cordon(n); err != nil {
+		if IsLimiterError(err) {
+			reason := err.Error()
+			tags, _ := tag.New(context.Background(), tag.Upsert(TagReason, reason))
+			stats.Record(tags, MeasureLimitedCordon.M(1))
+			h.eventRecorder.Event(nr, core.EventTypeWarning, eventReasonCordonBlockedByLimit, reason)
+			h.logger.Info("cordon limiter", zap.String("node", n.Name), zap.String("reason", reason))
+			return
+		}
+
 		log.Info("Failed to cordon", zap.Error(err))
 		tags, _ = tag.New(tags, tag.Upsert(TagResult, tagResultFailed)) // nolint:gosec
 		stats.Record(tags, MeasureNodesCordoned.M(1))
