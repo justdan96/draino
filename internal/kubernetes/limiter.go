@@ -87,7 +87,7 @@ func (l *Limiter) SetNodeLister(lister NodeLister) {
 
 func (l *Limiter) CanCordon(node *core.Node) (bool, string) {
 
-	if node.Spec.Unschedulable == true {
+	if node.Spec.Unschedulable {
 		return true, "" //it is already cordon anyway
 	}
 
