@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/util/flowcontrol"
 )
 
 var nodesTestMap = map[string]*core.Node{
@@ -101,8 +103,7 @@ var nodesTestMap = map[string]*core.Node{
 			},
 		},
 	},
-
-	}
+}
 
 func NodesMapAsSlice() []*core.Node {
 	list := make([]*core.Node, len(nodesTestMap))
@@ -235,6 +236,12 @@ func TestLimiter_CanCordon(t *testing.T) {
 			want1: "",
 		},
 		{
+			name:  "already-cordon",
+			node:  nodesTestMap["AB-Cordon"],
+			want:  true,
+			want1: "",
+		},
+		{
 			name:         "global limit 3",
 			node:         nodesTestMap["AB"],
 			limiterfuncs: map[string]LimiterFunc{"limiter3": MaxSimultaneousCordonLimiterFunc(3, false)},
@@ -261,6 +268,7 @@ func TestLimiter_CanCordon(t *testing.T) {
 			limiterfuncs: map[string]LimiterFunc{
 				"limiter75%":       MaxSimultaneousCordonLimiterFunc(75, true),
 				"limiter40%-taint": MaxSimultaneousCordonLimiterForTaintsFunc(40, true, []string{"B"}),
+				"limiter10-taint":  MaxSimultaneousCordonLimiterForTaintsFunc(10, false, []string{"B"}),
 			},
 			want:  false,
 			want1: "limiter40%-taint",
@@ -269,11 +277,21 @@ func TestLimiter_CanCordon(t *testing.T) {
 			name: "limit on taint ok, but limit on labels block",
 			node: nodesTestMap["AB"],
 			limiterfuncs: map[string]LimiterFunc{
-				"limiter75%-taint": MaxSimultaneousCordonLimiterForTaintsFunc(75, true, []string{"A"}),
-				"limiter-label-A3": MaxSimultaneousCordonLimiterForLabelsFunc(3, false, []string{"A"}),
+				"limiter75%-taint":   MaxSimultaneousCordonLimiterForTaintsFunc(75, true, []string{"A"}),
+				"limiter-label-A3":   MaxSimultaneousCordonLimiterForLabelsFunc(3, false, []string{"A"}),
+				"limiter-label-B80%": MaxSimultaneousCordonLimiterForLabelsFunc(80, true, []string{"B"}),
 			},
 			want:  false,
 			want1: "limiter-label-A3",
+		},
+		{
+			name: "limit on %labels ok",
+			node: nodesTestMap["AB"],
+			limiterfuncs: map[string]LimiterFunc{
+				"limiter-label-B80%": MaxSimultaneousCordonLimiterForLabelsFunc(80, true, []string{"B"}),
+			},
+			want:  true,
+			want1: "",
 		},
 		{
 			name: "allow first node of the group",
@@ -284,15 +302,18 @@ func TestLimiter_CanCordon(t *testing.T) {
 			want:  true,
 			want1: "",
 		},
-
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := &Limiter{
-				nodeLister:   &testNodeLister{},
-				limiterfuncs: tt.limiterfuncs,
-				logger:       zap.NewNop(),
+				logger:      zap.NewNop(),
+				rateLimiter: flowcontrol.NewTokenBucketRateLimiter(200, 200),
 			}
+			l.SetNodeLister(&testNodeLister{})
+			for k, v := range tt.limiterfuncs {
+				l.AddLimiter(k, v)
+			}
+
 			got, got1 := l.CanCordon(tt.node)
 			if got != tt.want {
 				t.Errorf("CanCordon() got = %v, want %v", got, tt.want)
@@ -312,6 +333,12 @@ func TestParseCordonMaxForKeys(t *testing.T) {
 		keys    []string
 		wantErr bool
 	}{
+		{
+			param:   "0", //missing token
+			value:   -1,
+			percent: false,
+			wantErr: true,
+		},
 		{
 			param:   "1,one",
 			value:   1,
@@ -335,7 +362,6 @@ func TestParseCordonMaxForKeys(t *testing.T) {
 			value:   23,
 			percent: false,
 			keys:    []string{"app", "cluster"},
-			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
@@ -353,6 +379,43 @@ func TestParseCordonMaxForKeys(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got2, tt.keys) {
 				t.Errorf("ParseCordonMaxForKeys() got2 = %v, want %v", got2, tt.keys)
+			}
+		})
+	}
+}
+
+func TestIsLimiterError(t *testing.T) {
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "No",
+			err:  fmt.Errorf("No"),
+			want: false,
+		},
+		{
+			name: "Yes",
+			err:  NewLimiterError("Yes"),
+			want: true,
+		},
+		{
+			name: "nil",
+			err:  nil,
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err != nil {
+				if tt.err.Error() != tt.name {
+					t.Errorf("errorMsg = %v, want %v", tt.err.Error(), tt.name)
+				}
+			}
+			if got := IsLimiterError(tt.err); got != tt.want {
+				t.Errorf("IsLimiterError() = %v, want %v", got, tt.want)
 			}
 		})
 	}

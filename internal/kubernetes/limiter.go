@@ -55,7 +55,7 @@ type LimiterError struct {
 	Reason string
 }
 
-func (l*LimiterError) Error() string {
+func (l *LimiterError) Error() string {
 	return l.Reason
 }
 
@@ -149,8 +149,8 @@ func MaxSimultaneousCordonLimiterFunc(max int, percent bool) LimiterFunc {
 			return false, fmt.Errorf("no node discovered")
 		}
 
-		if len(cordonNodes)==0 {	// always allow at least one node to be cordon
-			return true,nil
+		if len(cordonNodes) == 0 { // always allow at least one node to be cordon
+			return true, nil
 		}
 
 		if percent {
@@ -177,8 +177,8 @@ func MaxSimultaneousCordonLimiterForLabelsFunc(max int, percent bool, labelKeys 
 		}
 
 		cordonCount, totalMatchCount := getMatchingNodesCount(labels.SelectorFromSet(selectorSet), allNodes)
-		if cordonCount==0 {	// always allow at least one node of the group to be cordon
-			return true,nil
+		if cordonCount == 0 { // always allow at least one node of the group to be cordon
+			return true, nil
 		}
 
 		if percent {
@@ -228,8 +228,8 @@ func MaxSimultaneousCordonLimiterForTaintsFunc(max int, percent bool, taintKeys 
 		}
 
 		cordonCount, totalMatchCount := getMatchingNodesForTaintCount(selectorSet, allNodes)
-		if cordonCount==0 {	// always allow at least one node of the group to be cordon
-			return true,nil
+		if cordonCount == 0 { // always allow at least one node of the group to be cordon
+			return true, nil
 		}
 
 		if percent {
