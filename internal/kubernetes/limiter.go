@@ -91,10 +91,6 @@ func (l *Limiter) CanCordon(node *core.Node) (bool, string) {
 		return true, "" //it is already cordon anyway
 	}
 
-	if l.rateLimiter != nil && !l.rateLimiter.TryAccept() {
-		return false, "rateLimit"
-	}
-
 	allNodes := l.nodeLister.ListNodes()
 	cordonNodes := []*core.Node{}
 	for _, n := range allNodes {
@@ -112,6 +108,12 @@ func (l *Limiter) CanCordon(node *core.Node) (bool, string) {
 			return false, limiterName
 		}
 	}
+
+	// if all functional limiters are ok, let's ensure that we are not cordoning too fast
+	if l.rateLimiter != nil && !l.rateLimiter.TryAccept() {
+		return false, "rateLimit"
+	}
+
 	return true, ""
 }
 
