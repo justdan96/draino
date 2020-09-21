@@ -308,7 +308,7 @@ func (d *APICordonDrainer) Drain(n *core.Node) error {
 		return nil
 	}
 
-	pods, err := d.getPods(n.GetName())
+	pods, err := d.getPodsToDrain(n.GetName())
 	if err != nil {
 		return errors.Wrapf(err, "cannot get pods for node %s", n.GetName())
 	}
@@ -337,7 +337,7 @@ func (d *APICordonDrainer) Drain(n *core.Node) error {
 	return nil
 }
 
-func (d *APICordonDrainer) getPods(node string) ([]core.Pod, error) {
+func (d *APICordonDrainer) getPodsToDrain(node string) ([]core.Pod, error) {
 	l, err := d.c.CoreV1().Pods(meta.NamespaceAll).List(meta.ListOptions{
 		FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node}).String(),
 	})

@@ -19,6 +19,7 @@ package kubernetes
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ const (
 	eventReasonCordonBlockedByLimit = "CordonBlockedByLimit"
 	eventReasonCordonSucceeded      = "CordonSucceeded"
 	eventReasonCordonFailed         = "CordonFailed"
+	eventReasonCordonSkip           = "CordonSkip"
 
 	eventReasonUncordonStarting  = "UncordonStarting"
 	eventReasonUncordonSucceeded = "UncordonSucceeded"
@@ -79,6 +81,9 @@ type DrainingResourceEventHandler struct {
 	eventRecorder  record.EventRecorder
 	drainScheduler DrainScheduler
 
+	podStore     PodStore
+	cordonFilter PodFilterFunc
+
 	lastDrainScheduledFor time.Time
 	buffer                time.Duration
 
@@ -107,6 +112,15 @@ func WithDrainBuffer(d time.Duration) DrainingResourceEventHandlerOption {
 func WithConditionsFilter(conditions []string) DrainingResourceEventHandlerOption {
 	return func(h *DrainingResourceEventHandler) {
 		h.conditions = ParseConditions(conditions)
+	}
+}
+
+// WithCordonPodFilter configures a filter that may prevent to cordon nodes
+// to avoid further impossible eviction when draining.
+func WithCordonPodFilter(f PodFilterFunc, podStore PodStore) DrainingResourceEventHandlerOption {
+	return func(d *DrainingResourceEventHandler) {
+		d.cordonFilter = f
+		d.podStore = podStore
 	}
 }
 
@@ -165,8 +179,12 @@ func (h *DrainingResourceEventHandler) HandleNode(n *core.Node) {
 		return
 	}
 
-	// First cordon the node if it is not yet cordonned
+	// First cordon the node if it is not yet cordoned
 	if !n.Spec.Unschedulable {
+		// check if the node passes filters
+		if h.checkCordonFilters(n) {
+			return
+		}
 		h.cordon(n, badConditions)
 	}
 
@@ -183,6 +201,34 @@ func (h *DrainingResourceEventHandler) HandleNode(n *core.Node) {
 		h.scheduleDrain(n)
 		return
 	}
+}
+
+func (h *DrainingResourceEventHandler) checkCordonFilters(n *core.Node) bool {
+	if h.cordonFilter != nil && h.podStore != nil {
+		pods, err := h.podStore.ListPodsForNode(n.Name)
+		if err != nil {
+			h.logger.Error("can retrieve pods for node", zap.Error(err), zap.String("node", n.Name))
+			return true
+		}
+
+		sort.Sort(PodsSortedByName(pods))
+		for _, pod := range pods {
+			ok, err := h.cordonFilter(*pod)
+			if err != nil {
+				h.logger.Error("filtering issue", zap.Error(err), zap.String("node", n.Name), zap.String("pod", pod.Name), zap.String("namespace", n.Name))
+				return true
+			}
+			if !ok {
+				nr := &core.ObjectReference{Kind: "Node", Name: n.Name, UID: types.UID(n.Name)}
+				h.eventRecorder.Eventf(nr, core.EventTypeWarning, eventReasonCordonSkip, "Pod %s/%s is not in eviction scope", pod.Namespace, pod.Name)
+				h.eventRecorder.Eventf(pod, core.EventTypeWarning, eventReasonCordonSkip, "Pod is blocking cordon/drain for node %s", n.Name)
+				h.logger.Info("Cordon filter triggered", zap.String("node", n.Name), zap.String("pod", pod.Name))
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 func (h *DrainingResourceEventHandler) offendingConditions(n *core.Node) []SuppliedCondition {
