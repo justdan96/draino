@@ -172,7 +172,7 @@ func (h *DrainingResourceEventHandler) HandleNode(n *core.Node) {
 	badConditions := h.offendingConditions(n)
 	if len(badConditions) == 0 {
 		if shouldUncordon(n) {
-			logger.Info("node will be uncordon and schedule deleted")
+			logger.Info("node will be uncordoned and schedule deleted")
 			h.drainScheduler.DeleteSchedule(n.GetName())
 			h.uncordon(n)
 		}
