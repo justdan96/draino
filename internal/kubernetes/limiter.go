@@ -29,7 +29,7 @@ import (
 )
 
 type CordonLimiter interface {
-	// Check if the node can be cordon. If not possible to cordon the name of the limiter is returned
+	// Check if the node can be cordoned. If not possible to cordon the name of the limiter is returned
 	CanCordon(node *core.Node) (bool, string)
 
 	SetNodeLister(lister NodeLister)
