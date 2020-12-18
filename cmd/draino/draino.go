@@ -85,6 +85,9 @@ func main() {
 		maxSimultaneousCordonForLabels = app.Flag("max-simultaneous-cordon-for-labels", "Maximum number of cordoned nodes in the cluster for given labels. Example: '2,app,shard'").PlaceHolder("(Value|Value%),keys...").Strings()
 		maxSimultaneousCordonForTaints = app.Flag("max-simultaneous-cordon-for-taints", "Maximum number of cordoned nodes in the cluster for given taints. Example: '33%,node'").PlaceHolder("(Value|Value%),keys...").Strings()
 
+		// PV/PVC management
+		storageClassesAllowingVolumeDeletion = app.Flag("storage-class-allows-pv-deletion", "Storage class for which persistent volume (and associated claim) deletion is allowed. May be specified multiple times.").PlaceHolder("storageClassName").Strings()
+
 		conditions = app.Arg("node-conditions", "Nodes for which any of these conditions are true will be cordoned and drained.").Required().Strings()
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
@@ -240,6 +243,7 @@ func main() {
 			kubernetes.WithSkipDrain(*skipDrain),
 			kubernetes.WithPodFilter(kubernetes.NewPodFilters(pf...)),
 			kubernetes.WithCordonLimiter(cordonLimiter),
+			kubernetes.WithStorageClassesAllowingDeletion(*storageClassesAllowingVolumeDeletion),
 			kubernetes.WithAPICordonDrainerLogger(log),
 		),
 		kubernetes.NewEventRecorder(cs),

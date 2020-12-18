@@ -18,7 +18,6 @@ package kubernetes
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -46,7 +45,8 @@ const (
 	ConditionDrainedScheduled = "DrainScheduled"
 	DefaultSkipDrain          = false
 
-	PVCStorageClassCleanupAnnotationKey = "draino/delete-pvc-and-pv-with-storage-class"
+	PVCStorageClassCleanupAnnotationKey   = "draino/delete-pvc-and-pv"
+	PVCStorageClassCleanupAnnotationValue = "true"
 )
 
 type nodeMutatorFn func(*core.Node)
@@ -119,6 +119,8 @@ type APICordonDrainer struct {
 	maxGracePeriod   time.Duration
 	evictionHeadroom time.Duration
 	skipDrain        bool
+
+	storageClassesAllowingPVDeletion map[string]struct{}
 }
 
 // SuppliedCondition defines the condition will be watched.
@@ -171,9 +173,20 @@ func WithAPICordonDrainerLogger(l *zap.Logger) APICordonDrainerOption {
 	}
 }
 
+// WithCordonLimiter configures a APICordonDrainer to limit cordon activity
 func WithCordonLimiter(limiter CordonLimiter) APICordonDrainerOption {
 	return func(d *APICordonDrainer) {
 		d.cordonLimiter = limiter
+	}
+}
+
+// WithStorageClassesAllowingDeletion configures a APICordonDrainer to allow deletion of PV/PVC for some storage classes only
+func WithStorageClassesAllowingDeletion(storageClasses []string) APICordonDrainerOption {
+	return func(d *APICordonDrainer) {
+		d.storageClassesAllowingPVDeletion = map[string]struct{}{}
+		for _, sc := range storageClasses {
+			d.storageClassesAllowingPVDeletion[sc] = struct{}{}
+		}
 	}
 }
 
@@ -517,14 +530,13 @@ func (d *APICordonDrainer) awaitPVDeletion(pv *core.PersistentVolume, timeout ti
 // deletePVCAssociatedWithStorageClass takes care of deleting the PVCs associated with the annotated classes
 // returns the list of deleted PVCs and the first error encountered if any
 func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(pod *core.Pod) ([]*core.PersistentVolumeClaim, error) {
-	classesStr, ok := pod.Annotations[PVCStorageClassCleanupAnnotationKey]
-	if !ok {
+	if d.storageClassesAllowingPVDeletion == nil {
 		return nil, nil
 	}
-	storageClasses := map[string]struct{}{}
-	for _, c := range strings.Split(classesStr, ",") {
-		storageClasses[c] = struct{}{}
-		d.l.Info("searching for storage class", zap.String("name", c))
+
+	valAnnotation := pod.Annotations[PVCStorageClassCleanupAnnotationKey]
+	if valAnnotation != PVCStorageClassCleanupAnnotationValue {
+		return nil, nil
 	}
 
 	deletedPVCs := []*core.PersistentVolumeClaim{}
@@ -546,7 +558,7 @@ func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(pod *core.Pod) ([
 			d.l.Info("PVC with no StorageClassName", zap.String("claim", v.PersistentVolumeClaim.ClaimName))
 			continue
 		}
-		if _, ok := storageClasses[*pvc.Spec.StorageClassName]; !ok {
+		if _, ok := d.storageClassesAllowingPVDeletion[*pvc.Spec.StorageClassName]; !ok {
 			d.l.Info("Skipping StorageClassName", zap.String("storageClassName", *pvc.Spec.StorageClassName))
 			continue
 		}
