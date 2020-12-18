@@ -211,23 +211,23 @@ func main() {
 	// Cordon limiter
 	cordonLimiter := kubernetes.NewCordonLimiter(log)
 	for _, p := range *maxSimultaneousCordon {
-		max, percent, errParse := kubernetes.ParseCordonMax(p)
-		if errParse != nil {
-			kingpin.FatalIfError(errParse, "cannot parse 'max-simultaneous-cordon' argument")
+		max, percent, parseErr := kubernetes.ParseCordonMax(p)
+		if parseErr != nil {
+			kingpin.FatalIfError(parseErr, "cannot parse 'max-simultaneous-cordon' argument")
 		}
 		cordonLimiter.AddLimiter("MaxSimultaneousCordon:"+p, kubernetes.MaxSimultaneousCordonLimiterFunc(max, percent))
 	}
 	for _, p := range *maxSimultaneousCordonForLabels {
-		max, percent, keys, errParse := kubernetes.ParseCordonMaxForKeys(p)
-		if errParse != nil {
-			kingpin.FatalIfError(errParse, "cannot parse 'max-simultaneous-cordon-for-labels' argument")
+		max, percent, keys, parseErr := kubernetes.ParseCordonMaxForKeys(p)
+		if parseErr != nil {
+			kingpin.FatalIfError(parseErr, "cannot parse 'max-simultaneous-cordon-for-labels' argument")
 		}
 		cordonLimiter.AddLimiter("MaxSimultaneousCordonLimiterForLabels:"+p, kubernetes.MaxSimultaneousCordonLimiterForLabelsFunc(max, percent, keys))
 	}
 	for _, p := range *maxSimultaneousCordonForTaints {
-		max, percent, keys, errParse := kubernetes.ParseCordonMaxForKeys(p)
-		if errParse != nil {
-			kingpin.FatalIfError(errParse, "cannot parse 'max-simultaneous-cordon-for-taints' argument")
+		max, percent, keys, parseErr := kubernetes.ParseCordonMaxForKeys(p)
+		if parseErr != nil {
+			kingpin.FatalIfError(parseErr, "cannot parse 'max-simultaneous-cordon-for-taints' argument")
 		}
 		cordonLimiter.AddLimiter("MaxSimultaneousCordonLimiterForTaints:"+p, kubernetes.MaxSimultaneousCordonLimiterForTaintsFunc(max, percent, keys))
 
@@ -351,12 +351,12 @@ func (r *httpRunner) Run(stop <-chan struct{}) {
 	go func() {
 		<-stop
 		if err := s.Shutdown(ctx); err != nil {
-			r.logger.Error("Fail to Shutdown httpRunner", zap.Error(err))
+			r.logger.Error("Failed to Shutdown httpRunner", zap.Error(err))
 			return
 		}
 	}()
 	if err := s.ListenAndServe(); err != nil {
-		r.logger.Error("Fail to ListenAndServe httpRunner", zap.Error(err))
+		r.logger.Error("Failed to ListenAndServe httpRunner", zap.Error(err))
 	}
 	cancel()
 }

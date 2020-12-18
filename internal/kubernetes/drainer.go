@@ -527,7 +527,7 @@ func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(pod *core.Pod) ([
 		d.l.Info("searching for storage class", zap.String("name", c))
 	}
 
-	deletePVC := []*core.PersistentVolumeClaim{}
+	deletedPVCs := []*core.PersistentVolumeClaim{}
 
 	for _, v := range pod.Spec.Volumes {
 		if v.PersistentVolumeClaim == nil {
@@ -540,10 +540,10 @@ func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(pod *core.Pod) ([
 			continue // This PVC was already deleted
 		}
 		if err != nil {
-			return deletePVC, errors.Wrapf(err, "cannot get pvc %s/%s", pod.GetNamespace(), v.PersistentVolumeClaim.ClaimName)
+			return deletedPVCs, errors.Wrapf(err, "cannot get pvc %s/%s", pod.GetNamespace(), v.PersistentVolumeClaim.ClaimName)
 		}
 		if pvc.Spec.StorageClassName == nil {
-			d.l.Info("PVC with no StorageClassName")
+			d.l.Info("PVC with no StorageClassName", zap.String("claim", v.PersistentVolumeClaim.ClaimName))
 			continue
 		}
 		if _, ok := storageClasses[*pvc.Spec.StorageClassName]; !ok {
@@ -561,17 +561,17 @@ func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(pod *core.Pod) ([
 		}
 		if err != nil {
 			d.eventRecorder.Event(pod, core.EventTypeWarning, "EvictionFailure", fmt.Sprintf("Could not delete PVC %s/%s", pvc.Namespace, pvc.Name))
-			return deletePVC, errors.Wrapf(err, "cannot delete pvc %s/%s", pod.GetNamespace(), v.PersistentVolumeClaim.ClaimName)
+			return deletedPVCs, errors.Wrapf(err, "cannot delete pvc %s/%s", pod.GetNamespace(), v.PersistentVolumeClaim.ClaimName)
 		}
 		d.l.Info("deleting pvc", zap.String("pvc", v.PersistentVolumeClaim.ClaimName), zap.String("namespace", pod.GetNamespace()), zap.String("pvc-uid", string(pvc.GetUID())))
 
 		// wait for PVC complete deletion
 		if err := d.awaitPVCDeletion(pvc, time.Minute); err != nil {
-			return deletePVC, errors.Wrapf(err, "pvc deletion timeout %s/%s", pod.GetNamespace(), v.PersistentVolumeClaim.ClaimName)
+			return deletedPVCs, errors.Wrapf(err, "pvc deletion timeout %s/%s", pod.GetNamespace(), v.PersistentVolumeClaim.ClaimName)
 		}
-		deletePVC = append(deletePVC, pvc)
+		deletedPVCs = append(deletedPVCs, pvc)
 	}
-	return deletePVC, nil
+	return deletedPVCs, nil
 }
 
 func (d *APICordonDrainer) awaitPVCDeletion(pvc *core.PersistentVolumeClaim, timeout time.Duration) error {
