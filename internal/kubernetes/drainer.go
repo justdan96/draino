@@ -514,8 +514,8 @@ func (d *APICordonDrainer) awaitPVDeletion(pv *core.PersistentVolume, timeout ti
 	})
 }
 
-// deletePVCAssociatedWithStorageClass take care of deleting the PVC assocated with the annotated classes
-// return true if a deletion was performed
+// deletePVCAssociatedWithStorageClass takes care of deleting the PVCs associated with the annotated classes
+// returns the list of deleted PVCs and the first error encountered if any
 func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(pod *core.Pod) ([]*core.PersistentVolumeClaim, error) {
 	classesStr, ok := pod.Annotations[PVCStorageClassCleanupAnnotationKey]
 	if !ok {

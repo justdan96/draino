@@ -172,7 +172,7 @@ func (h *DrainingResourceEventHandler) HandleNode(n *core.Node) {
 	badConditions := h.offendingConditions(n)
 	if len(badConditions) == 0 {
 		if shouldUncordon(n) {
-			logger.Info("node will be uncordon and schedule deleted")
+			logger.Info("node will be uncordoned and schedule deleted")
 			h.drainScheduler.DeleteSchedule(n.GetName())
 			h.uncordon(n)
 		}
@@ -183,7 +183,7 @@ func (h *DrainingResourceEventHandler) HandleNode(n *core.Node) {
 	if !n.Spec.Unschedulable {
 		// check if the node passes filters
 		if !h.checkCordonFilters(n) {
-			logger.Info("checkCordonFilder rejected the node")
+			logger.Info("checkCordonFilter rejected the node")
 			return
 		}
 		done, err := h.cordon(n, badConditions)
