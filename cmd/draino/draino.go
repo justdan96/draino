@@ -351,7 +351,7 @@ func (r *httpRunner) Run(stop <-chan struct{}) {
 	go func() {
 		<-stop
 		if err := s.Shutdown(ctx); err != nil {
-			r.logger.Error("Fail to Shutdown httpRunner", zap.Error(err))
+			r.logger.Error("Failed to shutdown httpRunner", zap.Error(err))
 			return
 		}
 	}()
