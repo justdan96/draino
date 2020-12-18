@@ -356,7 +356,7 @@ func (r *httpRunner) Run(stop <-chan struct{}) {
 		}
 	}()
 	if err := s.ListenAndServe(); err != nil {
-		r.logger.Error("Fail to ListenAndServe httpRunner", zap.Error(err))
+		r.logger.Error("Failed to ListenAndServe httpRunner", zap.Error(err))
 	}
 	cancel()
 }
