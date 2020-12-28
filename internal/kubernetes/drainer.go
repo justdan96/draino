@@ -17,8 +17,11 @@ and limitations under the License.
 package kubernetes
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
+	"io/ioutil"
+	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
@@ -28,6 +31,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	runtimejson "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
@@ -49,8 +55,11 @@ const (
 	PVCStorageClassCleanupAnnotationKey   = "draino/delete-pvc-and-pv"
 	PVCStorageClassCleanupAnnotationValue = "true"
 
+
 	CompletedStr = "Completed"
 	FailedStr    = "Failed"
+
+	EvictionAPIURLAnnotationKey = "draino/eviction-api-url"
 )
 
 type nodeMutatorFn func(*core.Node)
@@ -422,7 +431,89 @@ func (d *APICordonDrainer) GetPodsToDrain(node string, podStore PodStore) ([]*co
 	return include, nil
 }
 
-func (d *APICordonDrainer) evict(pod *core.Pod, abort <-chan struct{}, e chan<- error) {
+func (d *APICordonDrainer) evict(pod *core.Pod, abort <-chan struct{}, errorChan chan<- error) {
+	evictionAPIURL, ok := pod.Annotations[EvictionAPIURLAnnotationKey]
+	if ok {
+		d.evictWithOperatorAPI(evictionAPIURL, pod, abort, errorChan)
+		return
+	}
+	d.evictWithKubernetesAPI(pod, abort, errorChan)
+	return
+}
+
+var evictionPayloadEncoder runtime.Encoder
+
+func GetEvictionPayloadEncoder() runtime.Encoder {
+	if evictionPayloadEncoder != nil {
+		return evictionPayloadEncoder
+	}
+	scheme := runtime.NewScheme()
+	policy.SchemeBuilder.AddToScheme(scheme)
+	codecFactory := serializer.NewCodecFactory(scheme)
+	jsonSerializer := runtimejson.NewSerializerWithOptions(runtimejson.DefaultMetaFactory, scheme, scheme, runtimejson.SerializerOptions{})
+	evictionPayloadEncoder = codecFactory.WithoutConversion().EncoderForVersion(jsonSerializer, policy.SchemeGroupVersion)
+	return evictionPayloadEncoder
+}
+
+func GetEvictionJsonPayload(obj *policy.Eviction) *bytes.Buffer {
+	buffer := bytes.NewBuffer([]byte{})
+	GetEvictionPayloadEncoder().Encode(obj, buffer)
+	return buffer
+}
+
+func (d *APICordonDrainer) evictWithOperatorAPI(url string, pod *core.Pod, abort <-chan struct{}, e chan<- error) {
+	d.l.Info("using custom eviction endpoint", zap.String("pod", pod.Namespace+"/"+pod.Name), zap.String("endpoint", url))
+	gracePeriod := int64(d.maxGracePeriod.Seconds())
+	if pod.Spec.TerminationGracePeriodSeconds != nil && *pod.Spec.TerminationGracePeriodSeconds < gracePeriod {
+		gracePeriod = *pod.Spec.TerminationGracePeriodSeconds
+	}
+	for {
+		select {
+		case <-abort:
+			e <- errors.New("pod eviction aborted")
+			return
+		default:
+			evictionPayload := &policy.Eviction{
+				ObjectMeta:    meta.ObjectMeta{Namespace: pod.GetNamespace(), Name: pod.GetName()},
+				DeleteOptions: &meta.DeleteOptions{GracePeriodSeconds: &gracePeriod},
+			}
+
+			req, err := http.NewRequest("POST", url, GetEvictionJsonPayload(evictionPayload))
+			req.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{Timeout: 10 * time.Second}
+			resp, err := client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				d.l.Info("custom eviction endpoint response", zap.String("pod", pod.Namespace+"/"+pod.Name), zap.String("endpoint", url), zap.Int("responseCode", resp.StatusCode))
+			}
+
+			switch {
+			case err != nil:
+				d.l.Info("custom eviction endpoint response error", zap.Error(err))
+				e <- errors.Wrapf(err, "cannot evict pod %s/%s", pod.GetNamespace(), pod.GetName())
+				return
+			// The eviction API returns 429 Too Many Requests if a pod
+			// cannot currently be evicted, for example due to a pod
+			// disruption budget.
+			case resp.StatusCode == http.StatusTooManyRequests:
+				time.Sleep(10 * time.Second)
+			case resp.StatusCode == http.StatusNotFound:
+				e <- nil
+				return
+			case resp.StatusCode >= http.StatusInternalServerError:
+				time.Sleep(20 * time.Second)
+				respContent, _ := ioutil.ReadAll(resp.Body)
+				d.l.Info("Eviction endpoint returned an error", zap.Int("code", resp.StatusCode), zap.String("body", string(respContent)))
+			default:
+				e <- errors.Wrapf(d.awaitDeletion(pod, d.deleteTimeout()), "cannot confirm pod %s/%s was deleted", pod.GetNamespace(), pod.GetName())
+				return
+			}
+		}
+	}
+}
+
+func (d *APICordonDrainer) evictWithKubernetesAPI(pod *core.Pod, abort <-chan struct{}, e chan<- error) {
 	gracePeriod := int64(d.maxGracePeriod.Seconds())
 	if pod.Spec.TerminationGracePeriodSeconds != nil && *pod.Spec.TerminationGracePeriodSeconds < gracePeriod {
 		gracePeriod = *pod.Spec.TerminationGracePeriodSeconds

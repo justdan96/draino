@@ -22,8 +22,10 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	core "k8s.io/api/core/v1"
+	policy "k8s.io/api/policy/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -591,4 +593,18 @@ func TestMarkDrain(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSerializePolicy(t *testing.T) {
+	pod := core.Pod{}
+	pod.Name = "test-pod"
+	pod.Namespace = "test-namespace"
+	gracePeriod := int64(30)
+
+	evictionPayload := &policy.Eviction{
+		ObjectMeta:    meta.ObjectMeta{Namespace: pod.GetNamespace(), Name: pod.GetName()},
+		DeleteOptions: &meta.DeleteOptions{GracePeriodSeconds: &gracePeriod},
+	}
+
+	assert.Equal(t, "{\"kind\":\"Eviction\",\"apiVersion\":\"policy/v1beta1\",\"metadata\":{\"name\":\"test-pod\",\"namespace\":\"test-namespace\",\"creationTimestamp\":null},\"deleteOptions\":{\"gracePeriodSeconds\":30}}\n", string(GetEvictionJsonPayload(evictionPayload).Bytes()))
 }
