@@ -183,19 +183,27 @@ func GetAPIResourcesForGVK(discoveryInterface discovery.DiscoveryInterface, gvks
 	return output, nil
 }
 
-func StatRecordForEachCondition(ctx context.Context, node *core.Node, conditions []string, m stats.Measurement) {
+func nodeTags(ctx context.Context, node *core.Node) (context.Context, error) {
 	team := node.Labels["managed_by_team"]
 	if team == "" {
 		team = node.Labels["team"]
 	}
 	ngName := node.Labels[LabelKeyNodeGroupName]
 	ngNamespace := node.Labels[LabelKeyNodeGroupNamespace]
-	tagsWithNg, _ := tag.New(ctx, tag.Upsert(TagNodegroupNamespace, ngNamespace), tag.Upsert(TagNodegroupName, ngName), tag.Upsert(TagTeam, team))
+	return tag.New(ctx, tag.Upsert(TagNodegroupNamespace, ngNamespace), tag.Upsert(TagNodegroupName, ngName), tag.Upsert(TagTeam, team))
+}
 
+func StatRecordForEachCondition(ctx context.Context, node *core.Node, conditions []string, m stats.Measurement) {
+	tagsWithNg, _ := nodeTags(ctx, node)
 	for _, c := range conditions {
 		tags, _ := tag.New(tagsWithNg, tag.Upsert(TagConditions, c))
 		stats.Record(tags, m)
 	}
+}
+
+func StatRecordForNode(ctx context.Context, node *core.Node, m stats.Measurement) {
+	tagsWithNg, _ := nodeTags(ctx, node)
+	stats.Record(tagsWithNg, m)
 }
 
 func LoggerForNode(n *core.Node, logger *zap.Logger) *zap.Logger {

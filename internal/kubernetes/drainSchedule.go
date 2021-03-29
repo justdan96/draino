@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"errors"
 	"go.opencensus.io/tag"
 	"go.uber.org/zap"
 	core "k8s.io/api/core/v1"
@@ -24,6 +24,9 @@ const (
 
 	CustomDrainBufferAnnotation = "draino/drain-buffer"
 	DrainGroupAnnotation        = "draino/drain-group"
+
+	preProvisioningAnnotationKey   = "node-lifecycle.datadoghq.com/provision-new-node-before-drain"
+	preProvisioningAnnotationValue = "true"
 )
 
 type DrainScheduler interface {
@@ -46,12 +49,12 @@ type DrainSchedules struct {
 	period             time.Duration
 
 	logger             *zap.Logger
-	drainer            Drainer
+	drainer            DrainerNodeReplacer
 	eventRecorder      record.EventRecorder
 	suppliedConditions []SuppliedCondition
 }
 
-func NewDrainSchedules(drainer Drainer, eventRecorder record.EventRecorder, period time.Duration, labelKeysForGroups []string, suppliedConditions []SuppliedCondition, logger *zap.Logger) DrainScheduler {
+func NewDrainSchedules(drainer DrainerNodeReplacer, eventRecorder record.EventRecorder, period time.Duration, labelKeysForGroups []string, suppliedConditions []SuppliedCondition, logger *zap.Logger) DrainScheduler {
 	sort.Strings(labelKeysForGroups)
 	return &DrainSchedules{
 		labelKeysForGroups: labelKeysForGroups,
@@ -217,23 +220,45 @@ func (d *DrainSchedules) newSchedule(node *v1.Node, when time.Time) *schedule {
 	sched.timer = time.AfterFunc(time.Until(when), func() {
 		log := LoggerForNode(node, d.logger)
 		tags, _ := tag.New(context.Background(), tag.Upsert(TagNodeName, node.GetName())) // nolint:gosec
-		d.eventRecorder.Event(nr, core.EventTypeWarning, eventReasonDrainStarting, "Draining node")
-		if err := d.drainer.Drain(node); err != nil {
-			sched.finish = time.Now()
-			sched.setFailed()
-			log.Info("Failed to drain", zap.Error(err))
-			tags, _ = tag.New(tags, tag.Upsert(TagResult, tagResultFailed), tag.Upsert(TagFailureCause, string(getFailureCause(err)))) // nolint:gosec
-			StatRecordForEachCondition(tags, node, GetConditionsTypes(GetNodeOffendingConditions(node, d.suppliedConditions)), MeasureNodesDrained.M(1))
-			d.eventRecorder.Eventf(nr, core.EventTypeWarning, eventReasonDrainFailed, "Draining failed: %v", err)
+		replacementRequestEventDone := false
+		iterationCount := 0
+		if d.hasPreProvisioningAnnotation(node) {
+			log.Info("Start pre-provisioning before drain")
 			if err := RetryWithTimeout(
 				func() error {
-					return d.drainer.MarkDrain(node, when, sched.finish, true)
+					iterationCount++
+					log.Info("Pre-provisioning before drain", zap.Int("attempt", iterationCount))
+					replacementStatus, err := d.drainer.PreProvisionNode(node, nodeReplacementReasonPreProvisioning)
+					if err != nil {
+						log.Error("Failed to validate node-replacement status", zap.Error(err))
+						return err
+					}
+					if !replacementRequestEventDone {
+						log.Info("Pre-provisioning doing node event for request done", zap.Int("attempt", iterationCount))
+						d.eventRecorder.Event(nr, core.EventTypeNormal, eventReasonNodePreProvisioning, "Node pre-provisioning before drain: request done.")
+						replacementRequestEventDone = true
+					}
+					if replacementStatus == NodeReplacementStatusDone {
+						log.Info("Pre-provisioning completed", zap.Int("attempt", iterationCount))
+						d.eventRecorder.Event(nr, core.EventTypeNormal, eventReasonNodePreProvisioningCompleted, "Node pre-provisioning before drain: completed.")
+						return nil
+					}
+					log.Info("Pre-provisioning on-going", zap.Int("attempt", iterationCount), zap.String("status", string(replacementStatus)))
+					return &NodePreProvisioningTimeoutError{} // Note that this error is dropped by RetryWithTimeout func.
 				},
-				SetConditionRetryPeriod,
-				SetConditionTimeout,
+				20*time.Second,
+				20*time.Minute,
 			); err != nil {
-				log.Error("Failed to place condition following drain failure")
+				log.Info("Pre-provisioning failed")
+				d.handleDrainFailure(sched, log, &NodePreProvisioningTimeoutError{}, tags, node)
+				return
 			}
+			log.Info("Pre-provisioning completed")
+		}
+
+		d.eventRecorder.Event(nr, core.EventTypeWarning, eventReasonDrainStarting, "Draining node")
+		if err := d.drainer.Drain(node); err != nil {
+			d.handleDrainFailure(sched, log, err, tags, node)
 			return
 		}
 		sched.finish = time.Now()
@@ -253,6 +278,30 @@ func (d *DrainSchedules) newSchedule(node *v1.Node, when time.Time) *schedule {
 		}
 	})
 	return sched
+}
+
+func (d *DrainSchedules) handleDrainFailure(sched *schedule, log *zap.Logger, drainError error, tags context.Context, node *v1.Node) context.Context {
+	nr := &core.ObjectReference{Kind: "Node", Name: node.GetName(), UID: types.UID(node.GetName())}
+	sched.finish = time.Now()
+	sched.setFailed()
+	log.Info("Failed to drain", zap.Error(drainError))
+	tags, _ = tag.New(tags, tag.Upsert(TagResult, tagResultFailed), tag.Upsert(TagFailureCause, string(getFailureCause(drainError)))) // nolint:gosec
+	StatRecordForEachCondition(tags, node, GetConditionsTypes(GetNodeOffendingConditions(node, d.suppliedConditions)), MeasureNodesDrained.M(1))
+	d.eventRecorder.Eventf(nr, core.EventTypeWarning, eventReasonDrainFailed, "Draining failed: %v", drainError)
+	if err := RetryWithTimeout(
+		func() error {
+			return d.drainer.MarkDrain(node, sched.when, sched.finish, true)
+		},
+		SetConditionRetryPeriod,
+		SetConditionTimeout,
+	); err != nil {
+		log.Error("Failed to place condition following drain failure")
+	}
+	return tags
+}
+
+func (d *DrainSchedules) hasPreProvisioningAnnotation(node *v1.Node) bool {
+	return node.Annotations[preProvisioningAnnotationKey] == preProvisioningAnnotationValue
 }
 
 type AlreadyScheduledError struct {
@@ -276,9 +325,13 @@ const (
 	PodEvictionTimeout              FailureCause = "pod_eviction_timeout"
 	PodDeletionTimeout              FailureCause = "pod_deletion_timeout"
 	VolumeCleanup                   FailureCause = "volume_cleanup"
+	NodePreProvisioning             FailureCause = "node_preprovisioning_timeout"
 )
 
 func getFailureCause(err error) FailureCause {
+	if errors.As(err, &NodePreProvisioningTimeoutError{}) {
+		return NodePreProvisioning
+	}
 	if errors.As(err, &OverlappingDisruptionBudgetsError{}) {
 		return OverlappingPodDisruptionBudgets
 	}

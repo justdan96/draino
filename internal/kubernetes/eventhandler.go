@@ -52,8 +52,14 @@ const (
 	eventReasonDrainFailed           = "DrainFailed"
 	eventReasonDrainConfig           = "DrainConfig"
 
+	eventReasonNodePreProvisioning          = "NodePreProvisioning"
+	eventReasonNodePreProvisioningCompleted = "NodePreProvisioningCompleted"
+
 	tagResultSucceeded = "succeeded"
 	tagResultFailed    = "failed"
+
+	nodeReplacementReasonPreProvisioning = "preProvisioning"
+	nodeReplacementReasonReplacement     = "replacement"
 
 	drainRetryAnnotationKey   = "draino/drain-retry"
 	drainRetryAnnotationValue = "true"
@@ -63,12 +69,13 @@ const (
 
 // Opencensus measurements.
 var (
-	MeasureNodesCordoned       = stats.Int64("draino/nodes_cordoned", "Number of nodes cordoned.", stats.UnitDimensionless)
-	MeasureNodesUncordoned     = stats.Int64("draino/nodes_uncordoned", "Number of nodes uncordoned.", stats.UnitDimensionless)
-	MeasureNodesDrained        = stats.Int64("draino/nodes_drained", "Number of nodes drained.", stats.UnitDimensionless)
-	MeasureNodesDrainScheduled = stats.Int64("draino/nodes_drainScheduled", "Number of nodes drain scheduled.", stats.UnitDimensionless)
-	MeasureLimitedCordon       = stats.Int64("draino/cordon_limited", "Number of cordon activities that have been blocked due to limits.", stats.UnitDimensionless)
-	MeasureSkippedCordon       = stats.Int64("draino/cordon_skipped", "Number of cordon activities that have been skipped due filtering.", stats.UnitDimensionless)
+	MeasureNodesCordoned           = stats.Int64("draino/nodes_cordoned", "Number of nodes cordoned.", stats.UnitDimensionless)
+	MeasureNodesUncordoned         = stats.Int64("draino/nodes_uncordoned", "Number of nodes uncordoned.", stats.UnitDimensionless)
+	MeasureNodesDrained            = stats.Int64("draino/nodes_drained", "Number of nodes drained.", stats.UnitDimensionless)
+	MeasureNodesDrainScheduled     = stats.Int64("draino/nodes_drainScheduled", "Number of nodes drain scheduled.", stats.UnitDimensionless)
+	MeasureLimitedCordon           = stats.Int64("draino/cordon_limited", "Number of cordon activities that have been blocked due to limits.", stats.UnitDimensionless)
+	MeasureSkippedCordon           = stats.Int64("draino/cordon_skipped", "Number of cordon activities that have been skipped due filtering.", stats.UnitDimensionless)
+	MeasureNodesReplacementRequest = stats.Int64("draino/nodes_replacement_request", "Number of nodes replacement requested.", stats.UnitDimensionless)
 
 	TagNodeName, _           = tag.NewKey("node_name")
 	TagConditions, _         = tag.NewKey("conditions")
@@ -245,7 +252,7 @@ func (h *DrainingResourceEventHandler) HandleNode(n *core.Node) {
 		elapseSinceCompleted := time.Since(drainStatus.LastTransition)
 		if elapseSinceCompleted > h.durationWithCompletedStatusBeforeReplacement {
 			// This node probably blocked due to minSize set on the nodegroup
-			h.cordonDrainer.ReplaceNode(n)
+			h.cordonDrainer.ReplaceNode(n, nodeReplacementReasonReplacement)
 		}
 		return // we are waiting for that node to be removed from the cluster by the CA
 	}

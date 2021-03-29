@@ -113,9 +113,17 @@ func (d *mockCordonDrainer) DeleteScheduleByName(name string) {
 	})
 }
 
-func (d *mockCordonDrainer) ReplaceNode(n *core.Node) (NodeReplacementStatus, error) {
+func (d *mockCordonDrainer) ReplaceNode(n *core.Node, reason string) (NodeReplacementStatus, error) {
 	d.calls = append(d.calls, mockCall{
 		name: "ReplaceNode",
+		node: n.Name,
+	})
+	return NodeReplacementStatusNone, nil
+}
+
+func (d *mockCordonDrainer) PreProvisionNode(n *core.Node, reason string) (NodeReplacementStatus, error) {
+	d.calls = append(d.calls, mockCall{
+		name: "PreProvisionNode",
 		node: n.Name,
 	})
 	return NodeReplacementStatusNone, nil

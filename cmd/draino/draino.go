@@ -143,9 +143,16 @@ func main() {
 			Aggregation: view.Count(),
 			TagKeys:     []tag.Key{kubernetes.TagReason, kubernetes.TagConditions, kubernetes.TagNodegroupName, kubernetes.TagNodegroupNamespace, kubernetes.TagTeam},
 		}
+		nodesReplacement = &view.View{
+			Name:        "node_replacement_request_total",
+			Measure:     kubernetes.MeasureNodesReplacementRequest,
+			Description: "Number of nodes replacement requested.",
+			Aggregation: view.Count(),
+			TagKeys:     []tag.Key{kubernetes.TagResult, kubernetes.TagReason, kubernetes.TagNodegroupName, kubernetes.TagNodegroupNamespace, kubernetes.TagTeam},
+		}
 	)
 
-	kingpin.FatalIfError(view.Register(nodesCordoned, nodesUncordoned, nodesDrained, nodesDrainScheduled, limitedCordon, skippedCordon), "cannot create metrics")
+	kingpin.FatalIfError(view.Register(nodesCordoned, nodesUncordoned, nodesDrained, nodesDrainScheduled, limitedCordon, skippedCordon, nodesReplacement), "cannot create metrics")
 
 	p, err := prometheus.NewExporter(prometheus.Options{Namespace: kubernetes.Component})
 	kingpin.FatalIfError(err, "cannot export metrics")
@@ -254,18 +261,20 @@ func main() {
 
 	eventRecorder := kubernetes.NewEventRecorder(cs)
 
+	cordonDrainer := kubernetes.NewAPICordonDrainer(cs,
+		eventRecorder,
+		kubernetes.MaxGracePeriod(*maxGracePeriod),
+		kubernetes.EvictionHeadroom(*evictionHeadroom),
+		kubernetes.WithSkipDrain(*skipDrain),
+		kubernetes.WithPodFilter(kubernetes.NewPodFilters(pf...)),
+		kubernetes.WithCordonLimiter(cordonLimiter),
+		kubernetes.WithNodeReplacementLimiter(nodeReplacementLimiter),
+		kubernetes.WithStorageClassesAllowingDeletion(*storageClassesAllowingVolumeDeletion),
+		kubernetes.WithAPICordonDrainerLogger(log),
+	)
+
 	var h cache.ResourceEventHandler = kubernetes.NewDrainingResourceEventHandler(
-		kubernetes.NewAPICordonDrainer(cs,
-			eventRecorder,
-			kubernetes.MaxGracePeriod(*maxGracePeriod),
-			kubernetes.EvictionHeadroom(*evictionHeadroom),
-			kubernetes.WithSkipDrain(*skipDrain),
-			kubernetes.WithPodFilter(kubernetes.NewPodFilters(pf...)),
-			kubernetes.WithCordonLimiter(cordonLimiter),
-			kubernetes.WithNodeReplacementLimiter(nodeReplacementLimiter),
-			kubernetes.WithStorageClassesAllowingDeletion(*storageClassesAllowingVolumeDeletion),
-			kubernetes.WithAPICordonDrainerLogger(log),
-		),
+		cordonDrainer,
 		eventRecorder,
 		kubernetes.WithLogger(log),
 		kubernetes.WithDrainBuffer(*drainBuffer),
@@ -310,6 +319,7 @@ func main() {
 	nodes := kubernetes.NewNodeWatch(cs, nodeLabelFilter)
 
 	cordonLimiter.SetNodeLister(nodes)
+	cordonDrainer.SetNodeStore(nodes)
 
 	id, err := os.Hostname()
 	kingpin.FatalIfError(err, "cannot get hostname")
