@@ -18,11 +18,12 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"errors"
+	"github.com/oklog/run"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.uber.org/zap"
@@ -187,22 +188,25 @@ func GetAPIResourcesForGVK(discoveryInterface discovery.DiscoveryInterface, gvks
 	return output, nil
 }
 
-func nodeTags(ctx context.Context, node *core.Node) (context.Context, error) {
+type NodeTagsValues struct {
+	Team, NgName, NgNamespace string
+}
+
+func GetNodeTagsValues(node *core.Node) NodeTagsValues {
 	team := node.Labels["managed_by_team"]
 	if team == "" {
 		team = node.Labels["team"]
 	}
-	ngName := node.Labels[LabelKeyNodeGroupName]
-	ngNamespace := node.Labels[LabelKeyNodeGroupNamespace]
-	return tag.New(ctx, tag.Upsert(TagNodegroupNamespace, ngNamespace), tag.Upsert(TagNodegroupName, ngName), tag.Upsert(TagTeam, team))
+	return NodeTagsValues{
+		Team:        team,
+		NgName:      node.Labels[LabelKeyNodeGroupName],
+		NgNamespace: node.Labels[LabelKeyNodeGroupNamespace],
+	}
 }
 
-func StatRecordForEachCondition(ctx context.Context, node *core.Node, conditions []string, m stats.Measurement) {
-	tagsWithNg, _ := nodeTags(ctx, node)
-	for _, c := range conditions {
-		tags, _ := tag.New(tagsWithNg, tag.Upsert(TagConditions, c))
-		stats.Record(tags, m)
-	}
+func nodeTags(ctx context.Context, node *core.Node) (context.Context, error) {
+	values := GetNodeTagsValues(node)
+	return tag.New(ctx, tag.Upsert(TagNodegroupNamespace, values.NgNamespace), tag.Upsert(TagNodegroupName, values.NgName), tag.Upsert(TagTeam, values.Team))
 }
 
 func StatRecordForNode(ctx context.Context, node *core.Node, m stats.Measurement) {
@@ -216,4 +220,18 @@ func LoggerForNode(n *core.Node, logger *zap.Logger) *zap.Logger {
 		team = n.Labels["team"]
 	}
 	return logger.With(zap.String("node", n.Name), zap.String("ng_name", n.Labels[LabelKeyNodeGroupName]), zap.String("ng_namespace", n.Labels[LabelKeyNodeGroupNamespace]), zap.String("node_team", n.Labels[LabelKeyNodeGroupNamespace]))
+}
+
+type Runner interface {
+	Run(stop <-chan struct{})
+}
+
+func Await(rs ...Runner) error {
+	stop := make(chan struct{})
+	g := &run.Group{}
+	for i := range rs {
+		r := rs[i] // https://golang.org/doc/faq#closures_and_goroutines
+		g.Add(func() error { r.Run(stop); return nil }, func(err error) { close(stop) })
+	}
+	return g.Run()
 }
