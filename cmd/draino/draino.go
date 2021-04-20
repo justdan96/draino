@@ -100,6 +100,7 @@ func main() {
 
 		configName           = app.Flag("config-name", "Name of the draino configuratio").Required().String()
 		resetScopeAnnotation = app.Flag("reset-config-annotations", "Reset the scope annotation on the nodes").Default("false").Bool()
+		scopeAnalysisPeriod  = app.Flag("scope-analysis-period", "Period to run the scope analysis and generate metric").Default((5 * time.Minute).String()).Duration()
 
 		conditions = app.Arg("node-conditions", "Nodes for which any of these conditions are true will be cordoned and drained.").Required().Strings()
 	)
@@ -345,7 +346,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	scopeObserver := kubernetes.NewScopeObserver(cs, *configName, kubernetes.ParseConditions(*conditions), nodes, pods, 1*time.Minute, kubernetes.NewPodFilters(podFilterCordon...), nodeLabelFilterFunc, log)
+	scopeObserver := kubernetes.NewScopeObserver(cs, *configName, kubernetes.ParseConditions(*conditions), nodes, pods, *scopeAnalysisPeriod, kubernetes.NewPodFilters(podFilterCordon...), nodeLabelFilterFunc, log)
 	go scopeObserver.Run(ctx.Done())
 	if *resetScopeAnnotation {
 		go scopeObserver.Reset()

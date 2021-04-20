@@ -1,7 +1,7 @@
 package kubernetes
 
 import (
-	"strings"
+	"fmt"
 	"testing"
 	"time"
 
@@ -33,11 +33,40 @@ func TestScopeObserverImpl_IsAnnotationUpdateNeeded(t *testing.T) {
 			want:           false,
 		},
 		{
+			name:           "no annotation - not in-scope (pod) --> no update",
+			configName:     "draino1",
+			nodeFilterFunc: func(obj interface{}) bool { return true }, // in scope for node
+			podFilterFunc:  func(p v1.Pod) (pass bool, reason string, err error) { return false, "test", nil },
+			objects:        []runtime.Object{&v1.Pod{}},
+			node:           &v1.Node{},
+			want:           false,
+		},
+		{
+			name:           "no annotation - not in-scope (pod with error) --> no update",
+			configName:     "draino1",
+			nodeFilterFunc: func(obj interface{}) bool { return true }, // in scope for node
+			podFilterFunc: func(p v1.Pod) (pass bool, reason string, err error) {
+				return true, "test", fmt.Errorf("error path test")
+			},
+			objects: []runtime.Object{&v1.Pod{}},
+			node:    &v1.Node{},
+			want:    false,
+		},
+		{
 			name:           "no annotation - in-scope --> update needed",
 			configName:     "draino1",
 			nodeFilterFunc: func(obj interface{}) bool { return true }, // in scope
 			podFilterFunc:  NewPodFilters(),
 			objects:        []runtime.Object{},
+			node:           &v1.Node{},
+			want:           true,
+		},
+		{
+			name:           "no annotation - in-scope (node and pod) --> update needed",
+			configName:     "draino1",
+			nodeFilterFunc: func(obj interface{}) bool { return true },                                        // in scope node
+			podFilterFunc:  func(p v1.Pod) (pass bool, reason string, err error) { return true, "test", nil }, // in scope pod
+			objects:        []runtime.Object{&v1.Pod{}},
 			node:           &v1.Node{},
 			want:           true,
 		},
@@ -165,7 +194,7 @@ func TestScopeObserverImpl_updateNodeAnnotationsAndLabels(t *testing.T) {
 			nodeName: "node1",
 			validationFunc: func(node *v1.Node) bool {
 				v := node.Annotations[ConfigurationAnnotationKey]
-				return strings.Contains(v, "other") && strings.Contains(v, "draino1")
+				return v == "draino1,other" || v == "other,draino1"
 			},
 			wantErr: false,
 		},
