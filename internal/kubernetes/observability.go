@@ -260,10 +260,11 @@ func (s *DrainoConfigurationObserverImpl) processQueueForNodeUpdates() {
 			if err := RetryWithTimeout(func() error {
 				err := s.updateNodeAnnotations(nodeName)
 				if err != nil {
-					s.logger.Info("Failed attempt to update annotation", zap.String("node", nodeName), zap.Error(err))
+					s.logger.Error("Failed attempt to update annotation", zap.String("node", nodeName), zap.Error(err))
+					return err
 				}
-				return err
-			}, 500*time.Millisecond, 10); err != nil {
+				return nil
+			}, 500*time.Millisecond, 10*time.Second); err != nil {
 				s.logger.Error("Failed to update annotations", zap.String("node", nodeName), zap.Int("retry", requeueCount))
 				s.queueNodeToBeUpdated.AddRateLimited(obj)
 				return
@@ -279,6 +280,7 @@ func (s *DrainoConfigurationObserverImpl) updateNodeAnnotations(nodeName string)
 	node, err := s.runtimeObjectStore.Nodes().Get(nodeName)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			s.logger.Info("Update node annotations skip since the node is not found", zap.String("node", nodeName))
 			return nil
 		}
 		return err
@@ -324,8 +326,10 @@ func (s *DrainoConfigurationObserverImpl) updateNodeAnnotations(nodeName string)
 		if node.Annotations == nil {
 			node.Annotations = map[string]string{}
 		}
+		s.logger.Info("Patching node annotations", zap.String("node", nodeName), zap.String("config", newConfig))
 		return PatchNodeAnnotationKey(s.kclient, nodeName, ConfigurationAnnotationKey, newConfig)
 	}
+	s.logger.Warn("No patching for node annotations", zap.String("node", nodeName), zap.Strings("current-config", configsFromAnnotation),zap.Bool("inScope",inScope),zap.Strings("computed-config",configs))
 	return nil
 }
 
