@@ -386,6 +386,8 @@ func main() {
 	nodeLabelFilter = cache.FilteringResourceEventHandler{FilterFunc: nodeLabelFilterFunc, Handler: h}
 	nodes := kubernetes.NewNodeWatch(cs, nodeLabelFilter)
 	runtimeObjectStoreImpl.NodesStore = nodes
+	storeCloserFunc := runtimeObjectStoreImpl.Run(log)
+	defer storeCloserFunc()
 	cordonLimiter.SetNodeLister(nodes)
 	cordonDrainer.SetRuntimeObjectStore(runtimeObjectStoreImpl)
 

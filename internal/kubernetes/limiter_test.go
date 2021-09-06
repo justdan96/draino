@@ -285,7 +285,7 @@ func TestLimiter_CanCordon(t *testing.T) {
 	maxNotReadyNodePeriod := DefaultMaxNotReadyNodesPeriod
 	tests := []struct {
 		name                 string
-		globalBlockerBuilder func(sotre RuntimeObjectStore) GlobalBlocker
+		globalBlockerBuilder func(store RuntimeObjectStore) GlobalBlocker
 		limiterfuncs         map[string]LimiterFunc
 		node                 *core.Node
 		want                 bool

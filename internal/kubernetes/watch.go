@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
 	v1 "k8s.io/api/apps/v1"
 	core "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,10 +48,10 @@ type RuntimeObjectStore interface {
 }
 
 type RuntimeObjectStoreImpl struct {
-	NodesStore            NodeStore
-	PodsStore             PodStore
-	StatefulSetsStore     StatefulSetStore
-	PersistentVolumeStore PersistentVolumeStore
+	NodesStore            *NodeWatch
+	PodsStore             *PodWatch
+	StatefulSetsStore     *StatefulSetWatch
+	PersistentVolumeStore *PersistentVolumeWatch
 }
 
 func (r *RuntimeObjectStoreImpl) Nodes() NodeStore {
@@ -308,7 +309,7 @@ func (s StatefulSetWatch) Get(namespace, name string) (*v1.StatefulSet, error) {
 type PersistentVolumeStore interface {
 	SyncedStore
 	// Get the PV associated with a node
-	GetPVForNode(nodeName string) []*core.PersistentVolume
+	GetPVForNode(node *core.Node) []*core.PersistentVolume
 }
 
 type PersistentVolumeWatch struct {
@@ -317,7 +318,10 @@ type PersistentVolumeWatch struct {
 
 var _ PersistentVolumeStore = &PersistentVolumeWatch{}
 
-const pvNodeNameIndexField = "hostname"
+const (
+	pvNodeNameIndexField = "hostname"
+	hostNameLabelKey     = "kubernetes.io/hostname"
+)
 
 // NewPersistentVolumeWatch creates a watch on persistentVolume resources.
 func NewPersistentVolumeWatch(c kubernetes.Interface) *PersistentVolumeWatch {
@@ -332,14 +336,15 @@ func NewPersistentVolumeWatch(c kubernetes.Interface) *PersistentVolumeWatch {
 			if !ok {
 				return nil, fmt.Errorf("Object is not a PersitentVolume")
 			}
-			return []string{pv.Labels["kubernetes.io/hostname"]}, nil
+			return []string{pv.Labels[hostNameLabelKey]}, nil
 		}},
 	)
 	return &PersistentVolumeWatch{i}
 }
 
-func (p *PersistentVolumeWatch) GetPVForNode(nodeName string) []*core.PersistentVolume {
-	objects, err := p.SharedIndexInformer.GetIndexer().ByIndex(pvNodeNameIndexField, nodeName)
+func (p *PersistentVolumeWatch) GetPVForNode(node *core.Node) []*core.PersistentVolume {
+	hostname := node.Labels[hostNameLabelKey]
+	objects, err := p.SharedIndexInformer.GetIndexer().ByIndex(pvNodeNameIndexField, hostname)
 	if err != nil {
 		return nil
 	}
@@ -381,4 +386,29 @@ func RunStoreForTest(kclient kubernetes.Interface) (store RuntimeObjectStore, cl
 	}()
 	wg.Wait()
 	return store, func() { close(stopCh) }
+}
+
+func (store *RuntimeObjectStoreImpl) Run(logger *zap.Logger) (closingFunc func()) {
+	stopCh := make(chan struct{})
+
+	if store.StatefulSetsStore != nil {
+		go store.StatefulSetsStore.Run(stopCh)
+	}
+	if store.PodsStore != nil {
+		go store.PodsStore.Run(stopCh)
+	}
+	if store.NodesStore != nil {
+		go store.NodesStore.Run(stopCh)
+	}
+	if store.PersistentVolumeStore != nil {
+		go store.PersistentVolumeStore.Run(stopCh)
+	}
+
+	for !store.HasSynced() {
+		logger.Info("Synching informers...")
+		time.Sleep(time.Second)
+	}
+	logger.Info("Informers synched")
+
+	return func() { close(stopCh) }
 }
