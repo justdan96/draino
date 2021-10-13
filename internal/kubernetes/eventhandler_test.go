@@ -78,6 +78,14 @@ func (d *mockCordonDrainer) MarkDrain(n *core.Node, when, finish time.Time, fail
 	return nil
 }
 
+func (d *mockCordonDrainer) MarkDrainDelete(n *core.Node) error {
+	d.calls = append(d.calls, mockCall{
+		name: "MarkDrainDelete",
+		node: n.Name,
+	})
+	return nil
+}
+
 func (d *mockCordonDrainer) GetPodsToDrain(node string, podStore PodStore) ([]*core.Pod, error) {
 	d.calls = append(d.calls, mockCall{
 		name: "GetPodsToDrain",

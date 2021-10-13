@@ -142,6 +142,7 @@ type Drainer interface {
 	// Drain the supplied node. Evicts the node of all but mirror and DaemonSet pods.
 	Drain(n *core.Node) error
 	MarkDrain(n *core.Node, when, finish time.Time, failed bool, failCount int32) error
+	MarkDrainDelete(n *core.Node) error
 	GetPodsToDrain(node string, podStore PodStore) ([]*core.Pod, error)
 	GetMaxDrainAttemptsBeforeFail() int32
 }
@@ -191,6 +192,11 @@ func (d *NoopCordonDrainer) Drain(_ *core.Node) error { return nil }
 
 // MarkDrain does nothing.
 func (d *NoopCordonDrainer) MarkDrain(_ *core.Node, _, _ time.Time, _ bool, _ int32) error {
+	return nil
+}
+
+// MarkDrainDelete does nothing.
+func (d *NoopCordonDrainer) MarkDrainDelete(_ *core.Node) error {
 	return nil
 }
 
@@ -381,6 +387,33 @@ func (d *APICordonDrainer) Uncordon(n *core.Node, mutators ...nodeMutatorFn) err
 	return nil
 }
 
+// MarkDrain set a condition on the node to mark that the drain is scheduled.
+func (d *APICordonDrainer) MarkDrainDelete(n *core.Node) error {
+	nodeName := n.Name
+	// Refresh the node object
+	freshNode, err := d.c.CoreV1().Nodes().Get(nodeName, meta.GetOptions{})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	}
+	newConditions:=[]core.NodeCondition{}
+	for _, condition := range freshNode.Status.Conditions {
+		if string(condition.Type) != ConditionDrainedScheduled {
+			continue
+		}
+		newConditions = append(newConditions, condition)
+	}
+	if len(newConditions)==len(freshNode.Status.Conditions) {
+		return nil
+	}
+	freshNode.Status.Conditions=newConditions
+	if _, err := d.c.CoreV1().Nodes().UpdateStatus(freshNode); err != nil {
+		return err
+	}
+	return nil
+}
 // MarkDrain set a condition on the node to mark that the drain is scheduled.
 func (d *APICordonDrainer) MarkDrain(n *core.Node, when, finish time.Time, failed bool, failCount int32) error {
 	nodeName := n.Name

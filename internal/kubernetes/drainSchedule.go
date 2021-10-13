@@ -127,6 +127,19 @@ func (d *DrainSchedules) DeleteSchedule(node *v1.Node) {
 	d.Lock()
 	defer d.Unlock()
 	d.getScheduleGroup(node).removeSchedule(node.Name)
+
+	// Remove the Mark on the node
+	if err := RetryWithTimeout(
+		func() error {
+			return d.drainer.MarkDrainDelete(node)
+		},
+		SetConditionRetryPeriod,
+		SetConditionTimeout,
+	); err != nil {
+		// if we cannot mark the node, let's remove the schedule
+		d.logger.Error("Failed to remove mark of schedule",zap.String("node",node.Name))
+	}
+	return
 }
 
 func (d *DrainSchedules) DeleteScheduleByName(name string) {
