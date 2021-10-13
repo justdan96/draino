@@ -137,7 +137,7 @@ func (d *DrainSchedules) DeleteSchedule(node *v1.Node) {
 		SetConditionTimeout,
 	); err != nil {
 		// if we cannot mark the node, let's remove the schedule
-		d.logger.Error("Failed to remove mark of schedule",zap.String("node",node.Name))
+		d.logger.Error("Failed to remove mark of schedule", zap.String("node", node.Name))
 	}
 	return
 }
@@ -231,13 +231,7 @@ func (d *DrainSchedules) Schedule(node *v1.Node, failedCount int32) (time.Time, 
 	d.Unlock()
 
 	// Mark the node with the condition stating that drain is scheduled
-	if err := RetryWithTimeout(
-		func() error {
-			return d.drainer.MarkDrain(node, when, time.Time{}, false, failedCount)
-		},
-		SetConditionRetryPeriod,
-		SetConditionTimeout,
-	); err != nil {
+	if err :=  d.drainer.MarkDrain(node, when, time.Time{}, false, failedCount); err != nil {
 		// if we cannot mark the node, let's remove the schedule
 		d.DeleteSchedule(node)
 		return time.Time{}, err
@@ -357,13 +351,7 @@ func (d *DrainSchedules) newSchedule(node *v1.Node, when time.Time, failedCount 
 		tags, _ = tag.New(tags, tag.Upsert(TagResult, tagResultSucceeded)) // nolint:gosec
 		StatRecordForEachCondition(tags, node, GetNodeOffendingConditions(node, d.suppliedConditions), MeasureNodesDrained.M(1))
 		d.eventRecorder.Event(nr, core.EventTypeWarning, eventReasonDrainSucceeded, "Drained node")
-		if err := RetryWithTimeout(
-			func() error {
-				return d.drainer.MarkDrain(node, when, sched.finish, false, failedCount)
-			},
-			SetConditionRetryPeriod,
-			SetConditionTimeout,
-		); err != nil {
+		if err := d.drainer.MarkDrain(node, when, sched.finish, false, failedCount); err != nil {
 			d.eventRecorder.Eventf(nr, core.EventTypeWarning, eventReasonDrainFailed, "Failed to place drain condition: %v", err)
 			log.Error(fmt.Sprintf("Failed to place condition following drain success : %v", err))
 		}
@@ -380,13 +368,7 @@ func (d *DrainSchedules) handleDrainFailure(sched *schedule, log *zap.Logger, dr
 	tags, _ = tag.New(tags, tag.Upsert(TagResult, tagResultFailed), tag.Upsert(TagFailureCause, string(getFailureCause(drainError)))) // nolint:gosec
 	StatRecordForEachCondition(tags, node, GetNodeOffendingConditions(node, d.suppliedConditions), MeasureNodesDrained.M(1))
 	d.eventRecorder.Eventf(nr, core.EventTypeWarning, eventReasonDrainFailed, "Draining failed: %v", drainError)
-	if err := RetryWithTimeout(
-		func() error {
-			return d.drainer.MarkDrain(node, sched.when, sched.finish, true, sched.failedCount)
-		},
-		SetConditionRetryPeriod,
-		SetConditionTimeout,
-	); err != nil {
+	if err := d.drainer.MarkDrain(node, sched.when, sched.finish, true, sched.failedCount); err != nil {
 		log.Error("Failed to place condition following drain failure")
 	}
 	return tags
