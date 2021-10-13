@@ -372,12 +372,17 @@ func (h *DrainingResourceEventHandler) HandleNode(n *core.Node) {
 		return
 	}
 
-	// Let's ensure that a drain is scheduled
-	hasSchedule, failedSched := h.drainScheduler.HasSchedule(n)
-	LogForVerboseNode(h.logger, n, "hasSchedule", zap.Bool("hasSchedule", hasSchedule), zap.Bool("failedSchedule", failedSched))
-	if !hasSchedule {
-		h.scheduleDrain(n, drainStatus.FailedCount)
-		return
+	// The node may have been cordon by a user. Let's check if the cordon filters of draino are valid before doing any schedule
+	if h.checkCordonFilters(n) {
+		// Let's ensure that a drain is scheduled
+		hasSchedule, failedSched := h.drainScheduler.HasSchedule(n)
+		LogForVerboseNode(h.logger, n, "hasSchedule", zap.Bool("hasSchedule", hasSchedule), zap.Bool("failedSchedule", failedSched))
+		if !hasSchedule {
+			h.scheduleDrain(n, drainStatus.FailedCount)
+			return
+		}
+	}else{
+		logger.Info("Node is cordon but it is not passing cordon filters. Not scheduling any drain.")
 	}
 }
 
