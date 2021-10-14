@@ -291,8 +291,8 @@ func (h *DrainingResourceEventHandler) HandleNode(n *core.Node) {
 		h.drainScheduler.DeleteSchedule(n)
 		h.uncordon(n)
 		// Let's go back to initial state for the retry annotation
-		if err := PatchNodeAnnotationKey(h.kubeClient, n.Name, drainRetryAnnotationKey, drainRetryAnnotationValue); err != nil {
-			logger.Error("Fail to reset retry annotation")
+		if err := h.cordonDrainer.ResetRetryAnnotation(n); err != nil {
+			logger.Error("Failed to reset retry annotation", zap.Error(err))
 		}
 		return
 	}

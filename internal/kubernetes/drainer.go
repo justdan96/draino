@@ -145,6 +145,7 @@ type Drainer interface {
 	MarkDrainDelete(n *core.Node) error
 	GetPodsToDrain(node string, podStore PodStore) ([]*core.Pod, error)
 	GetMaxDrainAttemptsBeforeFail() int32
+	ResetRetryAnnotation(n *core.Node) error
 }
 
 type NodeReplacementStatus string
@@ -189,6 +190,9 @@ func (d *NoopCordonDrainer) Uncordon(_ *core.Node, _ ...nodeMutatorFn) error { r
 
 // Drain does nothing.
 func (d *NoopCordonDrainer) Drain(_ *core.Node) error { return nil }
+
+// ResetRetryAnnotation does nothing.
+func (d *NoopCordonDrainer) ResetRetryAnnotation(n *core.Node) error { return nil }
 
 // MarkDrain does nothing.
 func (d *NoopCordonDrainer) MarkDrain(_ *core.Node, _, _ time.Time, _ bool, _ int32) error {
@@ -385,6 +389,10 @@ func (d *APICordonDrainer) Uncordon(n *core.Node, mutators ...nodeMutatorFn) err
 		return fmt.Errorf("cannot uncordon node %s: %w", fresh.GetName(), err)
 	}
 	return nil
+}
+
+func (d *APICordonDrainer) ResetRetryAnnotation(n *core.Node) error {
+	return PatchNodeAnnotationKey(d.c, n.Name, drainRetryAnnotationKey, drainRetryAnnotationValue)
 }
 
 // MarkDrainDelete remove the condition on the node to mark the current drain schedule.

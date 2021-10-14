@@ -786,12 +786,12 @@ func TestSerializePolicy(t *testing.T) {
 }
 
 func TestAPICordonDrainer_MarkDrainDelete(t *testing.T) {
-	someTimeAgo := meta.NewTime(time.Date(1978,time.April,12,22,00,00,00,time.UTC))
+	someTimeAgo := meta.NewTime(time.Date(1978, time.April, 12, 22, 00, 00, 00, time.UTC))
 	tests := []struct {
-		name    string
-		node *core.Node
+		name         string
+		node         *core.Node
 		expectedNode *core.Node
-		wantErr bool
+		wantErr      bool
 	}{
 		{
 			name: "Remove drain schedule condition",
@@ -813,8 +813,7 @@ func TestAPICordonDrainer_MarkDrainDelete(t *testing.T) {
 			expectedNode: &core.Node{
 				ObjectMeta: meta.ObjectMeta{Name: nodeName},
 				Status: core.NodeStatus{
-					Conditions: []core.NodeCondition{
-					},
+					Conditions: []core.NodeCondition{},
 				},
 			},
 		},
@@ -876,7 +875,7 @@ func TestAPICordonDrainer_MarkDrainDelete(t *testing.T) {
 			},
 		},
 	}
-		for _, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := &APICordonDrainer{
 				c: fake.NewSimpleClientset(tt.node),
@@ -884,8 +883,8 @@ func TestAPICordonDrainer_MarkDrainDelete(t *testing.T) {
 			if err := d.MarkDrainDelete(tt.node); (err != nil) != tt.wantErr {
 				t.Errorf("MarkDrainDelete() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			newNode,err:=d.c.CoreV1().Nodes().Get(tt.node.Name,meta.GetOptions{})
-			if err!=nil {
+			newNode, err := d.c.CoreV1().Nodes().Get(tt.node.Name, meta.GetOptions{})
+			if err != nil {
 				t.Errorf("MarkDrainDelete(), can't retrieve node error = %v", err)
 			}
 			if !reflect.DeepEqual(newNode, tt.expectedNode) {
