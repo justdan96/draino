@@ -387,7 +387,7 @@ func (d *APICordonDrainer) Uncordon(n *core.Node, mutators ...nodeMutatorFn) err
 	return nil
 }
 
-// MarkDrain set a condition on the node to mark that the drain is scheduled.
+// MarkDrainDelete remove the condition on the node to mark the current drain schedule.
 func (d *APICordonDrainer) MarkDrainDelete(n *core.Node) error {
 	nodeName := n.Name
 	// Refresh the node object
@@ -400,7 +400,7 @@ func (d *APICordonDrainer) MarkDrainDelete(n *core.Node) error {
 	}
 	newConditions := []core.NodeCondition{}
 	for _, condition := range freshNode.Status.Conditions {
-		if string(condition.Type) != ConditionDrainedScheduled {
+		if string(condition.Type) == ConditionDrainedScheduled {
 			continue
 		}
 		newConditions = append(newConditions, condition)
