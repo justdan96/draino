@@ -321,7 +321,7 @@ func TestDrainingResourceEventHandler(t *testing.T) {
 			obj: &core.Node{
 				ObjectMeta: meta.ObjectMeta{
 					Name:        nodeName,
-					Annotations: map[string]string{drainoConditionsAnnotationKey: "KernelPanic=True,0s", drainRetryAnnotationKey: drainRetryAnnotationFailedValue},
+					Annotations: map[string]string{drainoConditionsAnnotationKey: "KernelPanic=True,0s", drainRetryFailedAnnotationKey: drainRetryFailedAnnotationValue},
 				},
 				Spec: core.NodeSpec{Unschedulable: true},
 				Status: core.NodeStatus{
@@ -349,7 +349,7 @@ func TestDrainingResourceEventHandler(t *testing.T) {
 			obj: &core.Node{
 				ObjectMeta: meta.ObjectMeta{
 					Name:        nodeName,
-					Annotations: map[string]string{drainoConditionsAnnotationKey: "KernelPanic=True,0s", drainRetryAnnotationKey: drainRetryAnnotationRestartValue},
+					Annotations: map[string]string{drainoConditionsAnnotationKey: "KernelPanic=True,0s", drainRetryFailedAnnotationKey: drainRetryRestartAnnotationValue},
 				},
 				Spec: core.NodeSpec{Unschedulable: true},
 				Status: core.NodeStatus{

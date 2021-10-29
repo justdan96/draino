@@ -392,32 +392,45 @@ func (d *APICordonDrainer) Uncordon(n *core.Node, mutators ...nodeMutatorFn) err
 }
 
 func (d *APICordonDrainer) ResetRetryAnnotation(n *core.Node) error {
-	return PatchNodeAnnotationKey(d.c, n.Name, drainRetryAnnotationKey, drainRetryAnnotationValue)
+	// Till we are done with the annotation migration to the new key we have to deal with the 2 keys. Later we can remove that first block.
+	if n.Annotations[drainRetryAnnotationKey] == drainRetryFailedAnnotationValue {
+		PatchNodeAnnotationKey(d.c, n.Name, drainRetryAnnotationKey, drainRetryAnnotationValue)
+	}
+	return PatchDeleteNodeAnnotationKey(d.c, n.Name, drainRetryFailedAnnotationKey)
 }
 
-// MarkDrainDelete remove the condition on the node to mark the current drain schedule.
+// MarkDrainDelete removes the condition on the node to mark the current drain schedule.
 func (d *APICordonDrainer) MarkDrainDelete(n *core.Node) error {
-	nodeName := n.Name
-	// Refresh the node object
-	freshNode, err := d.c.CoreV1().Nodes().Get(nodeName, meta.GetOptions{})
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		return nil
-	}
-	newConditions := []core.NodeCondition{}
-	for _, condition := range freshNode.Status.Conditions {
-		if string(condition.Type) == ConditionDrainedScheduled {
-			continue
-		}
-		newConditions = append(newConditions, condition)
-	}
-	if len(newConditions) == len(freshNode.Status.Conditions) {
-		return nil
-	}
-	freshNode.Status.Conditions = newConditions
-	if _, err := d.c.CoreV1().Nodes().UpdateStatus(freshNode); err != nil {
+	if err := RetryWithTimeout(
+		func() error {
+			nodeName := n.Name
+			// Refresh the node object
+			freshNode, err := d.c.CoreV1().Nodes().Get(nodeName, meta.GetOptions{})
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return err
+				}
+				return nil
+			}
+			newConditions := []core.NodeCondition{}
+			for _, condition := range freshNode.Status.Conditions {
+				if string(condition.Type) == ConditionDrainedScheduled {
+					continue
+				}
+				newConditions = append(newConditions, condition)
+			}
+			if len(newConditions) == len(freshNode.Status.Conditions) {
+				return nil
+			}
+			freshNode.Status.Conditions = newConditions
+			if _, err := d.c.CoreV1().Nodes().UpdateStatus(freshNode); err != nil {
+				return err
+			}
+			return nil
+		},
+		SetConditionRetryPeriod,
+		SetConditionTimeout,
+	); err != nil {
 		return err
 	}
 	return nil
@@ -479,7 +492,8 @@ func (d *APICordonDrainer) MarkDrain(n *core.Node, when, finish time.Time, faile
 			if _, err := d.c.CoreV1().Nodes().UpdateStatus(freshNode); err != nil {
 				return err
 			}
-			return nil		},
+			return nil
+		},
 		SetConditionRetryPeriod,
 		SetConditionTimeout,
 	); err != nil {
