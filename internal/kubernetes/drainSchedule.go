@@ -48,6 +48,7 @@ type SchedulesGroup struct {
 	schedulesChain []string
 	period         time.Duration
 	backoffDelay   time.Duration
+	lastSchedule   * schedule
 }
 
 type NodePreprovisioningConfiguration struct {
@@ -154,27 +155,37 @@ func (sg *SchedulesGroup) whenNextSchedule(failedCount int32, options *schedulin
 	}
 
 	var when time.Time
+	var lastSchedule * schedule
 	for i := len(sg.schedulesChain) - 1; i >= 0; i-- {
 		lastScheduleName := sg.schedulesChain[i]
-		if lastSchedule, ok := sg.schedules[lastScheduleName]; ok {
-			if (lastSchedule.failedCount > 0 && failedCount == 0) || (lastSchedule.failedCount == 0 && failedCount > 0) {
+		var ok bool
+		if lastSchedule, ok = sg.schedules[lastScheduleName]; ok {
+			if (lastSchedule.failedCount > 0 && failedCount > 0) || (lastSchedule.failedCount == 0 && failedCount == 0) {
 				// use the retry schedules or the regular schedules
-				continue
+				break
 			}
-			// grab custom values if any
-			if lastSchedule != nil && lastSchedule.customDrainBuffer != nil {
-				period = *lastSchedule.customDrainBuffer
-			}
-
-			// compute next value
-			if failedCount > 0 {
-				when = lastSchedule.when.Add(backoffDelay)
-			} else {
-				when = lastSchedule.when.Add(period)
-			}
-			break
+			lastSchedule = nil
 		}
 	}
+
+	// If there was no schedule in the schedule chain, use the historical known last schedule in the group
+	if lastSchedule==nil && sg.lastSchedule!=nil {
+		lastSchedule= sg.lastSchedule
+	}
+
+	// grab custom values if any
+	if lastSchedule != nil {
+		if lastSchedule.customDrainBuffer != nil {
+			period = *lastSchedule.customDrainBuffer
+		}
+		// compute next value
+		if failedCount > 0 {
+			when = lastSchedule.when.Add(backoffDelay)
+		} else {
+			when = lastSchedule.when.Add(period)
+		}
+	}
+
 	if when.Before(sooner) {
 		when = sooner
 		if failedCount > 0 {
@@ -187,12 +198,15 @@ func (sg *SchedulesGroup) whenNextSchedule(failedCount int32, options *schedulin
 func (sg *SchedulesGroup) addSchedule(node *v1.Node, failedCount int32, options *schedulingOptions, scheduleRunner func(node *v1.Node, when time.Time, failedCount int32, options *schedulingOptions) *schedule) time.Time {
 	when := sg.whenNextSchedule(failedCount, options)
 	sg.schedulesChain = append(sg.schedulesChain, node.GetName())
-	sg.schedules[node.GetName()] = scheduleRunner(node, when, failedCount, options)
+	s := scheduleRunner(node, when, failedCount, options)
+	sg.schedules[node.GetName()] = s
+	sg.lastSchedule = s
 	return when
 }
 
 func (sg *SchedulesGroup) removeSchedule(name string) {
-	if s, ok := sg.schedules[name]; ok {
+	s, ok := sg.schedules[name]
+	if ok {
 		s.timer.Stop()
 		delete(sg.schedules, name)
 	}
@@ -204,6 +218,10 @@ func (sg *SchedulesGroup) removeSchedule(name string) {
 		newScheduleChain = append(newScheduleChain, scheduleName)
 	}
 	sg.schedulesChain = newScheduleChain
+
+	if len(sg.schedulesChain)==0 {
+		sg.lastSchedule = s
+	}
 }
 
 func (d *DrainSchedules) Schedule(node *v1.Node, failedCount int32) (time.Time, error) {

@@ -12,6 +12,29 @@ import (
 	"k8s.io/client-go/tools/record"
 )
 
+func TestDrainSchedules_LasrSchedule(t *testing.T) {
+	fmt.Println("Now: " + time.Now().Format(time.RFC3339))
+	period := time.Minute
+	node:=&v1.Node{ObjectMeta: meta.ObjectMeta{Name: "initNode",Annotations: map[string]string{CustomDrainBufferAnnotation: "10m"}}} // Using 10m in initNode ... that should be respected even if the schedule is removed.
+	scheduler := NewDrainSchedules(&NoopCordonDrainer{}, &record.FakeRecorder{}, period, DefaultSchedulingRetryBackoffDelay, []string{}, []SuppliedCondition{}, NodePreprovisioningConfiguration{}, zap.NewNop(), nil)
+	whenFirstSched, _ := scheduler.Schedule(node, 0)
+
+	scheduler.DeleteSchedule(node)
+
+	when, err := scheduler.Schedule(&v1.Node{ObjectMeta: meta.ObjectMeta{Name: nodeName}}, 0)
+	if err != nil {
+		t.Errorf("DrainSchedules.Schedule() error = %v", err)
+		return
+	}
+	from:= whenFirstSched.Add(10*period - 2*time.Second)
+	to:=   whenFirstSched.Add(10*period + 2*time.Second)
+
+	// Check that scheduled are place in the good time window
+	if when.Before(from) || when.After(to) {
+		t.Errorf("Schedule out of timeWindow")
+	}
+}
+
 func TestDrainSchedules_Schedule(t *testing.T) {
 	fmt.Println("Now: " + time.Now().Format(time.RFC3339))
 	period := time.Minute
