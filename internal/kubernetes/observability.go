@@ -153,10 +153,9 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 					node.Annotations = map[string]string{}
 				}
 				t := inScopeTags{
-					NodeTagsValues: nodeTags,
-					DrainStatus:    getDrainStatusStr(node),
-					// TODO delete empty string check once out of scope value has gone to all applicable nodes' annotation value in the fleet
-					InScope:                         len(node.Annotations[ConfigurationAnnotationKey]) > 0 || node.Annotations[ConfigurationAnnotationKey] == OutOfScopeAnnotationValue,
+					NodeTagsValues:                  nodeTags,
+					DrainStatus:                     getDrainStatusStr(node),
+					InScope:                         len(node.Annotations[ConfigurationAnnotationKey]) > 0 || node.Annotations[ConfigurationAnnotationKey] != OutOfScopeAnnotationValue,
 					PreprovisioningEnabled:          node.Annotations[preprovisioningAnnotationKey] == preprovisioningAnnotationValue,
 					PVCManagementEnabled:            s.HasPodWithPVCManagementEnabled(node),
 					DrainRetry:                      HasDrainRetryAnnotation(node),
