@@ -558,74 +558,76 @@ func TestNodeReplacementLimiter(t *testing.T) {
 }
 
 func TestPodLimiter(t *testing.T) {
-	maxNotReadyNodePeriod := 5 * time.Millisecond
-	tests := []struct {
-		name                 string
-		globalBlockerBuilder func(store RuntimeObjectStore) GlobalBlocker
-		limiterfuncs         map[string]LimiterFunc
-		nodes                []*core.Node
-		pods                 []*core.Pod
-		want                 bool
-		want1                string
-	}{
-		{
-			name:  "not limited",
-			nodes: getNodesTestSlice(),
-			pods:  pods,
-			want:  true,
-			want1: "",
-		},
-		{
-			name:  "limit on 1 pending pods with threshold at max=1",
-			nodes: getNodesTestSlice(),
-			pods:  pods,
-			globalBlockerBuilder: func(store RuntimeObjectStore) GlobalBlocker {
-				g := NewGlobalBlocker(zap.NewNop())
-				g.AddBlocker("limiter-pending-pods-1", MaxPendingPodsCheckFunc(1, false, store, zap.NewNop()), maxNotReadyNodePeriod)
-				g.blockers[0].updateBlockState()
-				return g
+	for i := 0; i < 100; i++ {
+		maxNotReadyNodePeriod := 5 * time.Millisecond
+		tests := []struct {
+			name                 string
+			globalBlockerBuilder func(store RuntimeObjectStore) GlobalBlocker
+			limiterfuncs         map[string]LimiterFunc
+			nodes                []*core.Node
+			pods                 []*core.Pod
+			want                 bool
+			want1                string
+		}{
+			{
+				name:  "not limited",
+				nodes: getNodesTestSlice(),
+				pods:  pods,
+				want:  true,
+				want1: "",
 			},
-			want:  false,
-			want1: "limiter-pending-pods-1",
-		},
-	}
+			{
+				name:  "limit on 1 pending pods with threshold at max=1",
+				nodes: getNodesTestSlice(),
+				pods:  pods,
+				globalBlockerBuilder: func(store RuntimeObjectStore) GlobalBlocker {
+					g := NewGlobalBlocker(zap.NewNop())
+					g.AddBlocker("limiter-pending-pods-1", MaxPendingPodsCheckFunc(1, false, store, zap.NewNop()), maxNotReadyNodePeriod)
+					g.blockers[0].updateBlockState()
+					return g
+				},
+				want:  false,
+				want1: "limiter-pending-pods-1",
+			},
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var objects []runtime.Object
-			for _, p := range tt.pods {
-				objects = append(objects, p)
-			}
-			for _, n := range tt.nodes {
-				objects = append(objects, n)
-			}
-			kclient := fake.NewSimpleClientset(objects...)
-			store, closeCh := RunStoreForTest(kclient)
-			defer closeCh()
-
-			l := &Limiter{
-				logger:      zap.NewNop(),
-				rateLimiter: flowcontrol.NewTokenBucketRateLimiter(200, 200),
-			}
-			l.SetNodeLister(store.Nodes())
-			for k, v := range tt.limiterfuncs {
-				l.AddLimiter(k, v)
-			}
-			if tt.globalBlockerBuilder != nil {
-				gl := tt.globalBlockerBuilder(store)
-				for name, blockStateFunc := range gl.GetBlockStateCacheAccessor() {
-					localFunc := blockStateFunc
-					l.AddLimiter(name, func(_ *core.Node, _, _ []*core.Node) (bool, error) { return !localFunc(), nil })
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var objects []runtime.Object
+				for _, p := range tt.pods {
+					objects = append(objects, p)
 				}
-			}
-			time.Sleep(2 * maxNotReadyNodePeriod) // wait for the caches to update
-			got, got1 := l.CanCordon(tt.nodes[0])
-			if got != tt.want {
-				t.Errorf("CanCordon() got = %v, want %v", got, tt.want)
-			}
-			if got1 != tt.want1 {
-				t.Errorf("CanCordon() got1 = %v, want %v", got1, tt.want1)
-			}
-		})
+				for _, n := range tt.nodes {
+					objects = append(objects, n)
+				}
+				kclient := fake.NewSimpleClientset(objects...)
+				store, closeCh := RunStoreForTest(kclient)
+				defer closeCh()
+
+				l := &Limiter{
+					logger:      zap.NewNop(),
+					rateLimiter: flowcontrol.NewTokenBucketRateLimiter(200, 200),
+				}
+				l.SetNodeLister(store.Nodes())
+				for k, v := range tt.limiterfuncs {
+					l.AddLimiter(k, v)
+				}
+				if tt.globalBlockerBuilder != nil {
+					gl := tt.globalBlockerBuilder(store)
+					for name, blockStateFunc := range gl.GetBlockStateCacheAccessor() {
+						localFunc := blockStateFunc
+						l.AddLimiter(name, func(_ *core.Node, _, _ []*core.Node) (bool, error) { return !localFunc(), nil })
+					}
+				}
+				time.Sleep(2 * maxNotReadyNodePeriod) // wait for the caches to update
+				got, got1 := l.CanCordon(tt.nodes[0])
+				if got != tt.want {
+					t.Errorf("CanCordon() got = %v, want %v", got, tt.want)
+				}
+				if got1 != tt.want1 {
+					t.Errorf("CanCordon() got1 = %v, want %v", got1, tt.want1)
+				}
+			})
+		}
 	}
 }
