@@ -130,24 +130,25 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 
 	go s.processQueueForNodeUpdates()
 	defer ticker.Stop()
+	counter:=0
 	for {
 		select {
 		case <-stop:
 			s.queueNodeToBeUpdated.ShutDown()
 			return
 		case <-ticker.C:
+			counter++
 			// Let's update the nodes metadata
 			for _, node := range s.runtimeObjectStore.Nodes().ListNodes() {
-				s.logger.Info("scope analysis",zap.String("node",node.Name),zap.String("step","start"))
+				fmt.Printf("scope analysis node=%s step=start ticker=%d",node.Name,counter)
 				_, outOfDate, err := s.getAnnotationUpdate(node)
 				if err != nil {
-					s.logger.Info("scope analysis",zap.String("node",node.Name),zap.String("step","error"))
 					s.logger.Error("Failed to check if config annotation was out of date", zap.Error(err), zap.String("node", node.Name))
 				} else if outOfDate {
-					s.logger.Info("scope analysis",zap.String("node",node.Name),zap.String("step","queueing"))
+					fmt.Printf("scope analysis node=%s step=queueing ticker=%d",node.Name,counter)
 					s.addNodeToQueue(node)
 				} else {
-					s.logger.Info("scope analysis",zap.String("node",node.Name),zap.String("step","nothing to do"))
+					fmt.Printf("scope analysis node=%s step=nothing ticker=%d",node.Name,counter)
 				}
 			}
 			newMetricsValue := inScopeMetrics{}
