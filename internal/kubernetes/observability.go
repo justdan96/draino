@@ -245,6 +245,7 @@ func (s *DrainoConfigurationObserverImpl) getAnnotationUpdate(node *v1.Node) (st
 	}
 	sort.Strings(configs)
 	valueDesired := strings.Join(configs, ",")
+	LogForVerboseNode(s.logger, node, "InScope information (2)", zap.Bool("outOfData", valueDesired != valueOriginal),zap.String("original", valueOriginal), zap.String("desired", valueDesired))
 	return valueDesired, valueDesired != valueOriginal, nil
 }
 
