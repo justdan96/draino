@@ -140,15 +140,11 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 			counter++
 			// Let's update the nodes metadata
 			for _, node := range s.runtimeObjectStore.Nodes().ListNodes() {
-				fmt.Printf("scope analysis node=%s step=start ticker=%d",node.Name,counter)
 				_, outOfDate, err := s.getAnnotationUpdate(node)
 				if err != nil {
 					s.logger.Error("Failed to check if config annotation was out of date", zap.Error(err), zap.String("node", node.Name))
 				} else if outOfDate {
-					fmt.Printf("scope analysis node=%s step=queueing ticker=%d",node.Name,counter)
 					s.addNodeToQueue(node)
-				} else {
-					fmt.Printf("scope analysis node=%s step=nothing ticker=%d",node.Name,counter)
 				}
 			}
 			newMetricsValue := inScopeMetrics{}
@@ -302,7 +298,7 @@ func (s *DrainoConfigurationObserverImpl) processQueueForNodeUpdates() {
 					s.logger.Info("Failed attempt to update annotation", zap.String("node", nodeName), zap.Error(err))
 				}
 				return err
-			}, 500*time.Millisecond, 10); err != nil {
+			}, 500*time.Millisecond, 10*time.Second); err != nil {
 				s.logger.Error("Failed to update annotations", zap.String("node", nodeName), zap.Int("retry", requeueCount))
 				s.queueNodeToBeUpdated.AddRateLimited(obj)
 				return
@@ -359,7 +355,7 @@ func (s *DrainoConfigurationObserverImpl) Reset() {
 					s.logger.Info("Failed attempt to reset annotation", zap.String("node", node.Name), zap.Error(err))
 				}
 				return err
-			}, 500*time.Millisecond, 10); err != nil {
+			}, 500*time.Millisecond, 10*time.Second); err != nil {
 				s.logger.Error("Failed to reset annotations", zap.String("node", node.Name), zap.Error(err))
 				continue
 			}
