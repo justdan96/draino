@@ -340,32 +340,20 @@ func (d *APICordonDrainer) deleteTimeout() time.Duration {
 	return d.maxGracePeriod + d.evictionHeadroom
 }
 
-func GetNodeRetryMaxAttempt(n *core.Node) (customValue int32, usedDefault bool, err error) {
+func (d *APICordonDrainer) GetMaxDrainAttemptsBeforeFail(n *core.Node) int32 {
+	logger := d.l.With(zap.String("node", n.Name))
 	if maxStr, ok := n.Annotations[CustomRetryMaxAttemptAnnotation]; ok {
 		maxValue, err := strconv.Atoi(maxStr)
 		if err != nil {
-			return 0, true, fmt.Errorf(CustomRetryMaxAttemptAnnotation+" can't convert value. Ignoring the user value '%s' and using default instead.", maxStr)
+			logger.Error(fmt.Sprintf(CustomRetryMaxAttemptAnnotation+" can't convert value. Ignoring the user value and using default instead.", maxStr))
+		} else if maxValue < 1 { // to disable retry the user should use annotation draino/drain-retry=false
+			logger.Error(fmt.Sprintf(CustomRetryMaxAttemptAnnotation+" has a zero or negative value. Ignoring the value '%s' and using default instead.", maxStr))
+		} else if maxValue > 100 { // it does not make sense to have bigger value. User should play with `retry-delay` parameter at some point to increase the retry period
+			logger.Error(fmt.Sprintf(CustomRetryMaxAttemptAnnotation+" has a too big value '%s'. Ignoring the value and using 100 instead.", maxStr))
 		}
-		if maxValue < 1 { // to disable retry the user should use annotation draino/drain-retry=false
-			return 0, true, fmt.Errorf(CustomRetryMaxAttemptAnnotation+" has a zero or negative value. Ignoring the value '%s' and using default instead.", maxStr)
-		}
-		if maxValue > 100 { // it does not make sense to have bigger value. User should play with `retry-delay` parameter at some point to increase the retry period
-			return 100, false, fmt.Errorf(CustomRetryMaxAttemptAnnotation+" has a too big value '%s'. Ignoring the value and using 100 instead.", maxStr)
-		}
-		return int32(maxValue), false, nil
+		return int32(maxValue)
 	}
-	return 0, true, nil
-}
-
-func (d *APICordonDrainer) GetMaxDrainAttemptsBeforeFail(n *core.Node) int32 {
-	customValue, useDefault, err := GetNodeRetryMaxAttempt(n)
-	if err != nil {
-		d.l.Error(err.Error(), zap.String("node", n.Name))
-	}
-	if useDefault {
-		return d.maxDrainAttemptsBeforeFail
-	}
-	return customValue
+	return d.maxDrainAttemptsBeforeFail
 }
 
 // Cordon the supplied node. Marks it unschedulable for new pods.
