@@ -353,7 +353,7 @@ func (d *DrainSchedules) newSchedule(node *v1.Node, when time.Time, failedCount 
 		}
 
 		// Node drain
-		d.eventRecorder.Event(nr, core.EventTypeNormal, eventReasonDrainStarting, "Draining node by attempting to evict all pods")
+		d.eventRecorder.Event(nr, core.EventTypeNormal, eventReasonDrainStarting, "Draining node")
 		if err := d.drainer.Drain(node); err != nil {
 			d.handleDrainFailure(sched, log, err, tags, node)
 			return
