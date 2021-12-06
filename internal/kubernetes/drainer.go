@@ -759,7 +759,8 @@ func (d *APICordonDrainer) evictWithOperatorAPI(url string, node *core.Node, pod
 }
 
 func (d *APICordonDrainer) evictionSequence(node *core.Node, pod *core.Pod, abort <-chan struct{}, evictionFunc func() error, otherErrorsHandlerFunc func(e error) error) error {
-	deadline := time.After(d.deleteTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), d.deleteTimeout())
+	defer cancel()
 	backoff := wait.Backoff{
 		Duration: 10 * time.Second,
 		Factor:   1.5,
@@ -771,7 +772,7 @@ func (d *APICordonDrainer) evictionSequence(node *core.Node, pod *core.Pod, abor
 		select {
 		case <-abort:
 			return errors.New("pod eviction aborted")
-		case <-deadline:
+		case <-ctx.Done():
 			return PodEvictionTimeoutError{} // this one is typed because we match it to a failure cause
 		default:
 			var err error
@@ -805,7 +806,7 @@ func (d *APICordonDrainer) evictionSequence(node *core.Node, pod *core.Pod, abor
 				}
 				select {
 				case <-time.After(waitTime):
-				case <-deadline:
+				case <-ctx.Done():
 				}
 			case apierrors.IsNotFound(err):
 				// the pod is already gone
