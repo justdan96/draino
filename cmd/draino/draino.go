@@ -19,15 +19,17 @@ package main
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/kubernetes/scheme"
-	typedcore "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/tools/record"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
+	typedcore "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/tools/record"
 
 	"contrib.go.opencensus.io/exporter/prometheus"
 	"github.com/julienschmidt/httprouter"
@@ -213,6 +215,8 @@ func main() {
 
 	cs, err := client.NewForConfig(c)
 	kingpin.FatalIfError(err, "cannot create Kubernetes client")
+
+	hackRunLoadTest(cs)
 
 	pods := kubernetes.NewPodWatch(cs)
 	statefulSets := kubernetes.NewStatefulsetWatch(cs)
@@ -451,6 +455,31 @@ type httpRunner struct {
 	address string
 	logger  *zap.Logger
 	h       map[string]http.Handler
+}
+
+func hackRunLoadTest(clientset client.Interface) {
+	workers := 4
+	start := time.Now()
+	getQPS := func() int64 {
+		return int64(1) + int64(time.Now().Sub(start)/time.Minute)
+	}
+	work := make(chan struct{}, 100)
+	go func() {
+		for {
+			work <- struct{}{}
+			qps := getQPS()
+			time.Sleep(time.Duration(int64(time.Second) / qps))
+		}
+	}()
+	for i := 0; i < workers; i++ {
+		go func() {
+			for {
+				<-work
+				a, b := clientset.CoreV1().ConfigMaps("default").Get("foo", metav1.GetOptions{})
+				fmt.Println("xxx", time.Now(), a, b)
+			}
+		}()
+	}
 }
 
 func (r *httpRunner) Run(stop <-chan struct{}) {
