@@ -458,27 +458,28 @@ type httpRunner struct {
 }
 
 func hackRunLoadTest(clientset client.Interface) {
-	workers := 4
+	workers := 10
 	start := time.Now()
-	getQPS := func() int64 {
-		return int64(1) + int64(time.Now().Sub(start)/time.Minute)
+	getQPS := func() float64 {
+		return 1.0 * (1.0 + float64(time.Now().Sub(start))/float64(time.Minute))
 	}
 	work := make(chan struct{}, 100)
 	go func() {
 		for {
 			work <- struct{}{}
 			qps := getQPS()
-			time.Sleep(time.Duration(int64(time.Second) / qps))
+			time.Sleep(time.Duration(float64(time.Second) / qps))
 		}
 	}()
 	for i := 0; i < workers; i++ {
-		go func() {
+		go func(i int) {
 			for {
 				<-work
+				start := time.Now()
 				a, b := clientset.CoreV1().ConfigMaps("default").Get("foo", metav1.GetOptions{})
-				fmt.Println("xxx", time.Now(), a, b)
+				fmt.Println("xxx", i, time.Now(), time.Now().Sub(start), a, b)
 			}
-		}()
+		}(i)
 	}
 }
 
