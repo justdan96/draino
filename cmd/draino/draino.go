@@ -29,7 +29,6 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcore "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/klog"
 
 	"contrib.go.opencensus.io/exporter/prometheus"
 	"github.com/julienschmidt/httprouter"
@@ -197,11 +196,6 @@ func main() {
 
 	drainoklog.InitializeKlog(*klogVerbosity)
 	drainoklog.RedirectToLogger(log)
-
-	for i := 0; i < 10; i++ {
-		klog.Info("nov", i)
-		klog.V(klog.Level(i)).Info("withv", i)
-	}
 
 	web := &httpRunner{address: *listen, logger: log, h: map[string]http.Handler{
 		"/metrics": p,
