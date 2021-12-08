@@ -44,6 +44,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
+	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	drainoklog "github.com/planetlabs/draino/internal/kubernetes/klog"
 )
 
@@ -217,6 +218,8 @@ func main() {
 
 	c, err := kubernetes.BuildConfigFromFlags(*apiserver, *kubecfg)
 	kingpin.FatalIfError(err, "cannot create Kubernetes client configuration")
+
+	k8sclient.DecorateWithRateLimiter(c, "default")
 
 	cs, err := client.NewForConfig(c)
 	kingpin.FatalIfError(err, "cannot create Kubernetes client")
