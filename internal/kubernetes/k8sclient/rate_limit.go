@@ -53,11 +53,15 @@ func DecorateWithRateLimiter(config *rest.Config, name string) {
 	config.RateLimiter = NewRateLimiterWithMetric(name, rateLimiter)
 }
 
+type mutexRateLimiter struct {
+	rateLimiter flowcontrol.RateLimiter
+	sync.Mutex
+}
+
 type rateLimiterWithMetric struct {
 	name        string
-	rateLimiter flowcontrol.RateLimiter
+	rateLimiter mutexRateLimiter
 	limiter     *rate.Limiter
-	mutex       sync.Mutex
 }
 
 var _ flowcontrol.RateLimiter = &rateLimiterWithMetric{}
@@ -68,37 +72,39 @@ func NewRateLimiterWithMetric(name string, rateLimiter flowcontrol.RateLimiter) 
 	limiterField = reflect.NewAt(limiterField.Type(), unsafe.Pointer(limiterField.UnsafeAddr())).Elem()
 	limiter := limiterField.Interface().(*rate.Limiter)
 	return &rateLimiterWithMetric{
-		name:        name,
-		rateLimiter: rateLimiter,
-		limiter:     limiter,
+		name: name,
+		rateLimiter: mutexRateLimiter{
+			rateLimiter: rateLimiter,
+		},
+		limiter: limiter,
 	}
 }
 
 func (r *rateLimiterWithMetric) TryAccept() bool {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.rateLimiter.Lock()
+	defer r.rateLimiter.Unlock()
 	defer r.updateMetric()
-	return r.rateLimiter.TryAccept()
+	return r.rateLimiter.rateLimiter.TryAccept()
 }
 
 func (r *rateLimiterWithMetric) Accept() {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.rateLimiter.Lock()
+	defer r.rateLimiter.Unlock()
 	defer r.updateMetric()
-	r.rateLimiter.Accept()
+	r.rateLimiter.rateLimiter.Accept()
 }
 
 func (r *rateLimiterWithMetric) Stop() {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.rateLimiter.Lock()
+	defer r.rateLimiter.Unlock()
 	defer r.updateMetric()
-	r.rateLimiter.Stop()
+	r.rateLimiter.rateLimiter.Stop()
 }
 
 func (r *rateLimiterWithMetric) QPS() float32 {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	return r.rateLimiter.QPS()
+	r.rateLimiter.Lock()
+	defer r.rateLimiter.Unlock()
+	return r.rateLimiter.rateLimiter.QPS()
 }
 
 func (r *rateLimiterWithMetric) updateMetric() {
