@@ -19,15 +19,17 @@ package main
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/kubernetes/scheme"
-	typedcore "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/tools/record"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
+
+	"k8s.io/client-go/kubernetes/scheme"
+	typedcore "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/klog"
 
 	"contrib.go.opencensus.io/exporter/prometheus"
 	"github.com/julienschmidt/httprouter"
@@ -42,7 +44,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
-	"github.com/planetlabs/draino/internal/kubernetes/klog"
+	drainoklog "github.com/planetlabs/draino/internal/kubernetes/klog"
 )
 
 // Default leader election settings.
@@ -116,11 +118,12 @@ func main() {
 		resetScopeAnnotation = app.Flag("reset-config-annotations", "Reset the scope annotation on the nodes").Bool()
 		scopeAnalysisPeriod  = app.Flag("scope-analysis-period", "Period to run the scope analysis and generate metric").Default((5 * time.Minute).String()).Duration()
 
+		klogVerbosity = app.Flag("klog-verbosity", "Verbosity to run klog at").Default("4").Int32()
+
 		conditions = app.Arg("node-conditions", "Nodes for which any of these conditions are true will be cordoned and drained.").Required().Strings()
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	// this is required to make all packages using klog write to stderr instead of tmp files
 	var (
 		nodesCordoned = &view.View{
 			Name:        "cordoned_nodes_total",
@@ -190,7 +193,14 @@ func main() {
 	if *debug {
 		log, err = zap.NewDevelopment()
 	}
-	klog.RedirectToLogger(log)
+
+	drainoklog.InitializeKlog(*klogVerbosity)
+	drainoklog.RedirectToLogger(log)
+
+	for i := 0; i < 10; i++ {
+		klog.Info("nov", i)
+		klog.V(klog.Level(i)).Info("withv", i)
+	}
 
 	web := &httpRunner{address: *listen, logger: log, h: map[string]http.Handler{
 		"/metrics": p,
