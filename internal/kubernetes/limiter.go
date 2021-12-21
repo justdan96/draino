@@ -155,7 +155,7 @@ func (l *Limiter) AddLimiter(name string, f LimiterFunc) {
 	if l.limiterfuncs == nil {
 		l.limiterfuncs = map[string]LimiterFunc{}
 	}
-	l.limiterfuncs[name] = f
+	l.limiterfuncs[SanitizeFeatureName(name)] = f
 }
 
 func ParseCordonMax(param string) (max int, isPercent bool, err error) {

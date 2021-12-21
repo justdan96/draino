@@ -116,7 +116,7 @@ func (g *GlobalBlocksRunner) AddBlocker(name string, checkFunc ComputeBlockState
 		return errors.New("Can't add a Blocker once the GlobalBlocker has been started")
 	}
 	g.blockers = append(g.blockers, &blocker{
-		name:       name,
+		name:       SanitizeFeatureName(name),
 		checkFunc:  checkFunc,
 		period:     period,
 		blockState: false,

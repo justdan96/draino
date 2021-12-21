@@ -306,51 +306,51 @@ func TestLimiter_CanCordon(t *testing.T) {
 		{
 			name:         "global limit 3",
 			node:         getNodesTestMap()["AB"],
-			limiterfuncs: map[string]LimiterFunc{"limiter3": MaxSimultaneousCordonLimiterFunc(3, false)},
+			limiterfuncs: map[string]LimiterFunc{SanitizeFeatureName("limiter3"): MaxSimultaneousCordonLimiterFunc(3, false)},
 			want:         false,
 			want1:        "limiter3",
 		},
 		{
 			name:         "global limit 75% not met",
 			node:         getNodesTestMap()["AB"],
-			limiterfuncs: map[string]LimiterFunc{"limiter75%": MaxSimultaneousCordonLimiterFunc(75, true)},
+			limiterfuncs: map[string]LimiterFunc{SanitizeFeatureName("limiter75%"): MaxSimultaneousCordonLimiterFunc(75, true)},
 			want:         true,
 			want1:        "",
 		},
 		{
 			name:         "global limit 40% met",
 			node:         getNodesTestMap()["AB"],
-			limiterfuncs: map[string]LimiterFunc{"limiter40%": MaxSimultaneousCordonLimiterFunc(40, true)},
+			limiterfuncs: map[string]LimiterFunc{SanitizeFeatureName("limiter40%"): MaxSimultaneousCordonLimiterFunc(40, true)},
 			want:         false,
-			want1:        "limiter40%",
+			want1:        SanitizeFeatureName("limiter40%"),
 		},
 		{
 			name: "global limit ok, but limit on taint block",
 			node: getNodesTestMap()["AB"],
 			limiterfuncs: map[string]LimiterFunc{
-				"limiter75%":       MaxSimultaneousCordonLimiterFunc(75, true),
-				"limiter40%-taint": MaxSimultaneousCordonLimiterForTaintsFunc(40, true, []string{"B"}),
-				"limiter10-taint":  MaxSimultaneousCordonLimiterForTaintsFunc(10, false, []string{"B"}),
+				SanitizeFeatureName("limiter75%"):       MaxSimultaneousCordonLimiterFunc(75, true),
+				SanitizeFeatureName("limiter40%-taint"): MaxSimultaneousCordonLimiterForTaintsFunc(40, true, []string{"B"}),
+				SanitizeFeatureName("limiter10-taint"):  MaxSimultaneousCordonLimiterForTaintsFunc(10, false, []string{"B"}),
 			},
 			want:  false,
-			want1: "limiter40%-taint",
+			want1: SanitizeFeatureName("limiter40%-taint"),
 		},
 		{
 			name: "limit on taint ok, but limit on labels block",
 			node: getNodesTestMap()["AB"],
 			limiterfuncs: map[string]LimiterFunc{
-				"limiter75%-taint":   MaxSimultaneousCordonLimiterForTaintsFunc(75, true, []string{"A"}),
-				"limiter-label-A3":   MaxSimultaneousCordonLimiterForLabelsFunc(3, false, []string{"A"}),
-				"limiter-label-B80%": MaxSimultaneousCordonLimiterForLabelsFunc(80, true, []string{"B"}),
+				SanitizeFeatureName("limiter75%-taint"):   MaxSimultaneousCordonLimiterForTaintsFunc(75, true, []string{"A"}),
+				SanitizeFeatureName("limiter-label-A3"):   MaxSimultaneousCordonLimiterForLabelsFunc(3, false, []string{"A"}),
+				SanitizeFeatureName("limiter-label-B80%"): MaxSimultaneousCordonLimiterForLabelsFunc(80, true, []string{"B"}),
 			},
 			want:  false,
-			want1: "limiter-label-A3",
+			want1: SanitizeFeatureName("limiter-label-A3"),
 		},
 		{
 			name: "limit on %labels ok",
 			node: getNodesTestMap()["AB"],
 			limiterfuncs: map[string]LimiterFunc{
-				"limiter-label-B80%": MaxSimultaneousCordonLimiterForLabelsFunc(80, true, []string{"B"}),
+				SanitizeFeatureName("limiter-label-B80%"): MaxSimultaneousCordonLimiterForLabelsFunc(80, true, []string{"B"}),
 			},
 			want:  true,
 			want1: "",
@@ -359,7 +359,7 @@ func TestLimiter_CanCordon(t *testing.T) {
 			name: "allow first node of the group",
 			node: getNodesTestMap()["D"],
 			limiterfuncs: map[string]LimiterFunc{
-				"limiter75%-taint": MaxSimultaneousCordonLimiterForTaintsFunc(75, true, []string{"D"}),
+				SanitizeFeatureName("limiter75%-taint"): MaxSimultaneousCordonLimiterForTaintsFunc(75, true, []string{"D"}),
 			},
 			want:  true,
 			want1: "",
@@ -374,7 +374,7 @@ func TestLimiter_CanCordon(t *testing.T) {
 				return g
 			},
 			want:  false,
-			want1: "limiter-notReady-10%",
+			want1: SanitizeFeatureName("limiter-notReady-10%"),
 		},
 		{
 			name: "limit on 1 nodes NotReady with threshold at max=1",
@@ -386,7 +386,7 @@ func TestLimiter_CanCordon(t *testing.T) {
 				return g
 			},
 			want:  false,
-			want1: "limiter-notReady-1",
+			want1: SanitizeFeatureName("limiter-notReady-1"),
 		},
 		{
 			name: "no limit on 15% nodes NotReady with threshold max=20%",
@@ -586,7 +586,7 @@ func TestPodLimiter(t *testing.T) {
 				return g
 			},
 			wantCanCordon: false,
-			wantReason:    "limiter-pending-pods-1",
+			wantReason:    SanitizeFeatureName("limiter-pending-pods-1"),
 		},
 	}
 

@@ -360,3 +360,14 @@ func LogForVerboseNode(logger *zap.Logger, node *core.Node, msg string, fields .
 		logger.Info(msg, append(fields, zap.String("node", node.Name))...)
 	}
 }
+
+func SanitizeFeatureName(name string) string {
+	n := strings.ReplaceAll(name, "%", "pc")
+	n = strings.ReplaceAll(n, "/", "_")
+	n = strings.ReplaceAll(n, "[", "_")
+	n = strings.ReplaceAll(n, "]", "_")
+	n = strings.ReplaceAll(n, " ", "_")
+	n = strings.ReplaceAll(n, "-", "_")
+	n = strings.ReplaceAll(n, ":", "_")
+	return n
+}
