@@ -361,8 +361,6 @@ func (d *DrainSchedules) newSchedule(ctx context.Context, node *v1.Node, when ti
 						d.eventRecorder.NodeEventf(ctx, node, core.EventTypeNormal, eventReasonNodePreprovisioning, "Node pre-provisioning before drain: request done")
 						replacementStarted = true
 						return false, nil
-					} else {
-						replacementStarted = true
 					}
 					replacementStatus, err := d.drainer.GetReplacementStatus(ctx, node)
 					if err != nil {
