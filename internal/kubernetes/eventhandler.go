@@ -514,16 +514,6 @@ func (h *DrainingResourceEventHandler) shouldUncordon(ctx context.Context, n *co
 	}
 	logger := TracedLoggerForNode(ctx, n, h.logger)
 
-	drainStatus, err := GetDrainConditionStatus(n)
-	if err != nil {
-		logger.Error(err.Error())
-		return false, err
-	}
-	// Only take the nodes that have been cordon by `draino` (with schedule)
-	if !drainStatus.Marked {
-		return false, nil
-	}
-
 	badConditions := GetNodeOffendingConditions(n, h.conditions)
 	if len(badConditions) == 0 {
 		LogForVerboseNode(logger, n, "No offending condition")
