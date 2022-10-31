@@ -99,7 +99,7 @@ func TestNewSortingTree2(t *testing.T) {
 	By10 := func(a, b int) bool { return a/10 < b/10 }
 	ReverseOnMod10 := func(a, b int) bool { return a%10 > b%10 }
 	tree := NewSortingTree(
-		[]int{19, 55, 3, 13, 2, 21, 15, 56, 21},
+		[]int{19, 55, 3, 13, 2, 21, 33, 15, 56, 21},
 		[]LessFunc[int]{By10, ReverseOnMod10})
 
 	fmt.Println(tree.AsDotGraph(true))
@@ -143,6 +143,12 @@ func TestNewSortingTree2(t *testing.T) {
 	v, found = tree.Next()
 	assert.True(t, found, "21 should be found")
 	assert.Equal(t, 21, v, "Value should be 21")
+
+	fmt.Println(tree.AsDotGraph(true))
+
+	v, found = tree.Next()
+	assert.True(t, found, "33 should be found")
+	assert.Equal(t, 33, v, "Value should be 33")
 
 	fmt.Println(tree.AsDotGraph(true))
 
