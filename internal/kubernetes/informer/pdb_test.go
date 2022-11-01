@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	"github.com/stretchr/testify/assert"
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -102,14 +103,15 @@ func Test_PDBInformer(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
 
-			informer := newFakePDBInformer(t, ch, tt.Objects)
+			informer, err := NewFakePDBInformer(ch, tt.Objects)
+			assert.NoError(t, err)
 
 			pdbs, err := informer.GetPDBsBlockedByPod(context.TODO(), tt.TestPodName, tt.TestPodNamespace)
 			assert.NoError(t, err)
 
 			assert.Equal(t, len(tt.ExpectedPDBNames), len(pdbs), "received amount of pods to not match expected amount")
 			for _, pdb := range pdbs {
-				assert.True(t, includes(pdb.GetName(), tt.ExpectedPDBNames), "found pod is not expected", pdb.GetName())
+				assert.True(t, utils.Includes(pdb.GetName(), tt.ExpectedPDBNames), "found pod is not expected", pdb.GetName())
 			}
 		})
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -58,14 +59,15 @@ func Test_PodInformer(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
 
-			informer := newFakePodInformer(t, ch, tt.Objects)
+			informer, err := NewFakePodInformer(ch, tt.Objects)
+			assert.NoError(t, err)
 
 			pods, err := informer.GetPodsByNode(context.TODO(), tt.TestNodeName)
 			assert.NoError(t, err)
 
 			assert.Equal(t, len(tt.ExpectedPodNames), len(pods), "received amount of pods to not match expected amount")
 			for _, pod := range pods {
-				assert.True(t, includes(pod.GetName(), tt.ExpectedPodNames), "found pod is not expected", pod.GetName())
+				assert.True(t, utils.Includes(pod.GetName(), tt.ExpectedPodNames), "found pod is not expected", pod.GetName())
 			}
 		})
 	}

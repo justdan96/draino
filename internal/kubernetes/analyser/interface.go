@@ -8,11 +8,11 @@ import (
 )
 
 type BlockingPod struct {
-	Node *corev1.Node
-	Pod  *corev1.Pod
-	PDB  *policyv1.PodDisruptionBudget
+	NodeName string
+	Pod      *corev1.Pod
+	PDB      *policyv1.PodDisruptionBudget
 }
 
 type Interface interface {
-	BlockingPodsOnNode(ctx context.Context, node *corev1.Node) ([]BlockingPod, error)
+	BlockingPodsOnNode(ctx context.Context, nodeName string) ([]BlockingPod, error)
 }

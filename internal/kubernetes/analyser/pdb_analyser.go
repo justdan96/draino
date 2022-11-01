@@ -6,7 +6,6 @@ import (
 
 	"github.com/planetlabs/draino/internal/kubernetes/informer"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
-	corev1 "k8s.io/api/core/v1"
 )
 
 var _ Interface = &PDBAnalyser{}
@@ -20,8 +19,8 @@ func NewPDBAnalyser(informer *informer.Informer) Interface {
 	return &PDBAnalyser{podInformer: informer, pdbInformer: informer}
 }
 
-func (a *PDBAnalyser) BlockingPodsOnNode(ctx context.Context, node *corev1.Node) ([]BlockingPod, error) {
-	pods, err := a.podInformer.GetPodsByNode(ctx, node.GetName())
+func (a *PDBAnalyser) BlockingPodsOnNode(ctx context.Context, nodeName string) ([]BlockingPod, error) {
+	pods, err := a.podInformer.GetPodsByNode(ctx, nodeName)
 	if err != nil {
 		return nil, err
 	}
@@ -39,9 +38,9 @@ func (a *PDBAnalyser) BlockingPodsOnNode(ctx context.Context, node *corev1.Node)
 
 		for _, pdb := range pdbs {
 			blockingPods = append(blockingPods, BlockingPod{
-				Node: node.DeepCopy(),
-				Pod:  pod.DeepCopy(),
-				PDB:  pdb.DeepCopy(),
+				NodeName: nodeName,
+				Pod:      pod.DeepCopy(),
+				PDB:      pdb.DeepCopy(),
 			})
 		}
 	}

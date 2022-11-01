@@ -558,7 +558,7 @@ func controllerRuntimeBootstrap() {
 		os.Exit(1)
 	}
 
-	informer, err := informer.New(mgr)
+	informer, err := informer.New(mgr.GetClient(), mgr.GetCache())
 	if err != nil {
 		fmt.Printf("error while initializing informer: %v\n", err)
 		os.Exit(1)
