@@ -12,6 +12,7 @@ import (
 
 const AllNamespacesNS = "__all_namespaces"
 
+// Make sure that the Informer is implementing all the required interfaces
 var (
 	_ PDBInformer = &Informer{}
 	_ PodInformer = &Informer{}

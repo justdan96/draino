@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	cachecr "sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientcr "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const PDBBlockByPodIdx = "pod:blocking:pdb"
@@ -22,30 +22,30 @@ func (i *Informer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) 
 	return GetFromIndex[*policyv1.PodDisruptionBudget](ctx, i, PDBBlockByPodIdx, ns, podName)
 }
 
-func initPDBIndexer(clt client.Client, cache cachecr.Cache) error {
+func initPDBIndexer(clt clientcr.Client, cache cachecr.Cache) error {
 	return cache.IndexField(
 		context.Background(),
 		&policyv1.PodDisruptionBudget{},
 		PDBBlockByPodIdx,
-		func(o client.Object) []string {
+		func(o clientcr.Object) []string {
 			return indexPDBBlockingPod(clt, o)
 		},
 	)
 }
 
-func indexPDBBlockingPod(clt client.Client, o client.Object) []string {
+func indexPDBBlockingPod(client clientcr.Client, o clientcr.Object) []string {
 	pdb, ok := o.(*policyv1.PodDisruptionBudget)
 	if !ok {
 		return []string{}
 	}
 
-	blockingPods, _ := getBlockingPodsForPDB(clt, pdb)
+	blockingPods, _ := getBlockingPodsForPDB(client, pdb)
 	return blockingPods
 }
 
-func getBlockingPodsForPDB(clt client.Client, pdb *policyv1.PodDisruptionBudget) ([]string, error) {
+func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBudget) ([]string, error) {
 	var pods corev1.PodList
-	if err := clt.List(context.Background(), &pods, &client.ListOptions{Namespace: pdb.GetNamespace()}); err != nil {
+	if err := client.List(context.Background(), &pods, &clientcr.ListOptions{Namespace: pdb.GetNamespace()}); err != nil {
 		return []string{}, err
 	}
 

@@ -39,7 +39,7 @@ func (a *PDBAnalyser) BlockingPodsOnNode(ctx context.Context, node *corev1.Node)
 
 		for _, pdb := range pdbs {
 			blockingPods = append(blockingPods, BlockingPod{
-				Node: nil,
+				Node: node.DeepCopy(),
 				Pod:  pod.DeepCopy(),
 				PDB:  pdb.DeepCopy(),
 			})
