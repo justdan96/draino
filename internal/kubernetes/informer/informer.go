@@ -7,10 +7,7 @@ import (
 	cachek "k8s.io/client-go/tools/cache"
 	cachecr "sigs.k8s.io/controller-runtime/pkg/cache"
 	clientcr "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
-
-const AllNamespacesNS = "__all_namespaces"
 
 // Make sure that the Informer is implementing all the required interfaces
 var (
@@ -25,11 +22,8 @@ type Informer struct {
 	cache  cachecr.Cache
 }
 
-func New(mgr manager.Manager) (*Informer, error) {
-	informer := &Informer{
-		client: mgr.GetClient(),
-		cache:  mgr.GetCache(),
-	}
+func New(client clientcr.Client, cache cachecr.Cache) (*Informer, error) {
+	informer := &Informer{client, cache}
 
 	if err := informer.Init(); err != nil {
 		return nil, err

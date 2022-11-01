@@ -2,12 +2,15 @@ package informer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	cachek "k8s.io/client-go/tools/cache"
 	cachecr "sigs.k8s.io/controller-runtime/pkg/cache"
 	clientcr "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -19,28 +22,26 @@ type PDBInformer interface {
 }
 
 func (i *Informer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error) {
-	return GetFromIndex[*policyv1.PodDisruptionBudget](ctx, i, PDBBlockByPodIdx, ns, podName)
+	key := generatePodIndexKey(podName, ns)
+	return GetFromIndex(ctx, i, PDBBlockByPodIdx, key, &policyv1.PodDisruptionBudget{})
 }
 
-func initPDBIndexer(clt clientcr.Client, cache cachecr.Cache) error {
-	return cache.IndexField(
-		context.Background(),
-		&policyv1.PodDisruptionBudget{},
-		PDBBlockByPodIdx,
-		func(o clientcr.Object) []string {
-			return indexPDBBlockingPod(clt, o)
-		},
-	)
+func initPDBIndexer(client clientcr.Client, cache cachecr.Cache) error {
+	informer, err := cache.GetInformer(context.Background(), &policyv1.PodDisruptionBudget{})
+	if err != nil {
+		return err
+	}
+	return informer.AddIndexers(map[string]cachek.IndexFunc{
+		PDBBlockByPodIdx: func(obj interface{}) ([]string, error) { return indexPDBBlockingPod(client, obj) },
+	})
 }
 
-func indexPDBBlockingPod(client clientcr.Client, o clientcr.Object) []string {
+func indexPDBBlockingPod(client clientcr.Client, o interface{}) ([]string, error) {
 	pdb, ok := o.(*policyv1.PodDisruptionBudget)
 	if !ok {
-		return []string{}
+		return nil, errors.New("cannot parse pdb object in indexer")
 	}
-
-	blockingPods, _ := getBlockingPodsForPDB(client, pdb)
-	return blockingPods
+	return getBlockingPodsForPDB(client, pdb)
 }
 
 func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBudget) ([]string, error) {
@@ -56,7 +57,7 @@ func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBu
 
 	blockingPods := make([]string, 0)
 	for _, pod := range pods.Items {
-		if !utils.IsPodReady(&pod) {
+		if utils.IsPodReady(&pod) {
 			continue
 		}
 
@@ -65,8 +66,12 @@ func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBu
 			continue
 		}
 
-		blockingPods = append(blockingPods, pod.GetName())
+		blockingPods = append(blockingPods, generatePodIndexKey(pod.GetName(), pod.GetNamespace()))
 	}
 
 	return blockingPods, nil
+}
+
+func generatePodIndexKey(podName, ns string) string {
+	return fmt.Sprintf("%s/%s", podName, ns)
 }
