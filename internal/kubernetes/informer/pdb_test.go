@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func Test_PDBInformer(t *testing.T) {
+func Test_PDBIndexer(t *testing.T) {
 	labels := map[string]string{"foo": "bar"}
 	tests := []struct {
 		Name             string
@@ -103,7 +103,7 @@ func Test_PDBInformer(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
 
-			informer, err := NewFakePDBInformer(ch, tt.Objects)
+			informer, err := NewFakePDBIndexer(ch, tt.Objects)
 			assert.NoError(t, err)
 
 			pdbs, err := informer.GetPDBsBlockedByPod(context.TODO(), tt.TestPodName, tt.TestPodNamespace)

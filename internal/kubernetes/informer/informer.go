@@ -11,19 +11,19 @@ import (
 
 // Make sure that the Informer is implementing all the required interfaces
 var (
-	_ PDBInformer = &Informer{}
-	_ PodInformer = &Informer{}
+	_ PDBIndexer = &Indexer{}
+	_ PodIndexer = &Indexer{}
 
-	_ GetSharedIndexInformer = &Informer{}
+	_ GetSharedIndexInformer = &Indexer{}
 )
 
-type Informer struct {
+type Indexer struct {
 	client clientcr.Client
 	cache  cachecr.Cache
 }
 
-func New(client clientcr.Client, cache cachecr.Cache) (*Informer, error) {
-	informer := &Informer{client, cache}
+func New(client clientcr.Client, cache cachecr.Cache) (*Indexer, error) {
+	informer := &Indexer{client, cache}
 
 	if err := informer.Init(); err != nil {
 		return nil, err
@@ -32,7 +32,7 @@ func New(client clientcr.Client, cache cachecr.Cache) (*Informer, error) {
 	return informer, nil
 }
 
-func (i *Informer) Init() error {
+func (i *Indexer) Init() error {
 	if err := initPDBIndexer(i.client, i.cache); err != nil {
 		return err
 	}
@@ -42,11 +42,11 @@ func (i *Informer) Init() error {
 	return nil
 }
 
-func (i *Informer) WaitForCacheSync(ctx context.Context) bool {
+func (i *Indexer) WaitForCacheSync(ctx context.Context) bool {
 	return i.cache.WaitForCacheSync(ctx)
 }
 
-func (i *Informer) GetSharedIndexInformer(ctx context.Context, obj clientcr.Object) (cachek.SharedIndexInformer, error) {
+func (i *Indexer) GetSharedIndexInformer(ctx context.Context, obj clientcr.Object) (cachek.SharedIndexInformer, error) {
 	informer, err := i.cache.GetInformer(ctx, obj)
 	if err != nil {
 		return nil, err

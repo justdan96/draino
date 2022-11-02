@@ -11,11 +11,11 @@ import (
 var _ Interface = &PDBAnalyser{}
 
 type PDBAnalyser struct {
-	podInformer informer.PodInformer
-	pdbInformer informer.PDBInformer
+	podInformer informer.PodIndexer
+	pdbInformer informer.PDBIndexer
 }
 
-func NewPDBAnalyser(informer *informer.Informer) Interface {
+func NewPDBAnalyser(informer *informer.Indexer) Interface {
 	return &PDBAnalyser{podInformer: informer, pdbInformer: informer}
 }
 

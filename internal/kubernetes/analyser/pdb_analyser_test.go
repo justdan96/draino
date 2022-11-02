@@ -144,7 +144,7 @@ func TestPDBAnalyser(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
-			informer, err := informer.NewFakeInformer(ch, tt.Objects)
+			informer, err := informer.NewFakeIndexer(ch, tt.Objects)
 			assert.NoError(t, err)
 
 			analyser := NewPDBAnalyser(informer)

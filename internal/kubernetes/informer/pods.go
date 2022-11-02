@@ -11,11 +11,11 @@ import (
 
 const PodsByNodeNameIdx = "pods:by:node"
 
-type PodInformer interface {
+type PodIndexer interface {
 	GetPodsByNode(ctx context.Context, nodeName string) ([]*corev1.Pod, error)
 }
 
-func (i *Informer) GetPodsByNode(ctx context.Context, nodeName string) ([]*corev1.Pod, error) {
+func (i *Indexer) GetPodsByNode(ctx context.Context, nodeName string) ([]*corev1.Pod, error) {
 	return GetFromIndex(ctx, i, PodsByNodeNameIdx, nodeName, &corev1.Pod{})
 }
 

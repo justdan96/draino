@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func Test_PodInformer(t *testing.T) {
+func Test_PodIndexer(t *testing.T) {
 	tests := []struct {
 		Name             string
 		TestNodeName     string
@@ -59,7 +59,7 @@ func Test_PodInformer(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
 
-			informer, err := NewFakePodInformer(ch, tt.Objects)
+			informer, err := NewFakePodIndexer(ch, tt.Objects)
 			assert.NoError(t, err)
 
 			pods, err := informer.GetPodsByNode(context.TODO(), tt.TestNodeName)

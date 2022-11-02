@@ -17,11 +17,11 @@ import (
 
 const PDBBlockByPodIdx = "pod:blocking:pdb"
 
-type PDBInformer interface {
+type PDBIndexer interface {
 	GetPDBsBlockedByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error)
 }
 
-func (i *Informer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error) {
+func (i *Indexer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error) {
 	key := generatePodIndexKey(podName, ns)
 	return GetFromIndex(ctx, i, PDBBlockByPodIdx, key, &policyv1.PodDisruptionBudget{})
 }
