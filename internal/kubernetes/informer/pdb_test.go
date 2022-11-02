@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/exp/slices"
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -111,7 +111,7 @@ func Test_PDBInformer(t *testing.T) {
 
 			assert.Equal(t, len(tt.ExpectedPDBNames), len(pdbs), "received amount of pods to not match expected amount")
 			for _, pdb := range pdbs {
-				assert.True(t, utils.Includes(pdb.GetName(), tt.ExpectedPDBNames), "found pod is not expected", pdb.GetName())
+				assert.True(t, slices.Contains(tt.ExpectedPDBNames, pdb.GetName()), "found pod is not expected", pdb.GetName())
 			}
 		})
 	}

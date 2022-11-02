@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/exp/slices"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -67,7 +67,7 @@ func Test_PodInformer(t *testing.T) {
 
 			assert.Equal(t, len(tt.ExpectedPodNames), len(pods), "received amount of pods to not match expected amount")
 			for _, pod := range pods {
-				assert.True(t, utils.Includes(pod.GetName(), tt.ExpectedPodNames), "found pod is not expected", pod.GetName())
+				assert.True(t, slices.Contains(tt.ExpectedPodNames, pod.GetName()), "found pod is not expected", pod.GetName())
 			}
 		})
 	}
