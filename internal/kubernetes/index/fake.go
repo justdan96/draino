@@ -55,13 +55,21 @@ func NewFakePodIndexer(ch chan struct{}, objects []runtime.Object) (PodIndexer, 
 	return NewFakeIndexer(ch, objects)
 }
 
-func createPod(name, ns, nodeName string, isReady bool, ls ...labels.Set) *corev1.Pod {
+type createPodOptions struct {
+	Name     string
+	Ns       string
+	NodeName string
+	IsReady  bool
+	LS       labels.Set
+}
+
+func createPod(opts createPodOptions) *corev1.Pod {
 	var label labels.Set = map[string]string{}
-	if len(ls) > 0 {
-		label = ls[0]
+	if opts.LS != nil {
+		label = opts.LS
 	}
 	ready := corev1.ConditionFalse
-	if isReady {
+	if opts.IsReady {
 		ready = corev1.ConditionTrue
 	}
 	return &corev1.Pod{
@@ -70,12 +78,12 @@ func createPod(name, ns, nodeName string, isReady bool, ls ...labels.Set) *corev
 			Kind:       "Pod",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
+			Name:      opts.Name,
+			Namespace: opts.Ns,
 			Labels:    label,
 		},
 		Spec: corev1.PodSpec{
-			NodeName: nodeName,
+			NodeName: opts.NodeName,
 		},
 		Status: corev1.PodStatus{
 			Conditions: []corev1.PodCondition{

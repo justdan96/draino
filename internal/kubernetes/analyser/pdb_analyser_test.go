@@ -194,11 +194,7 @@ func createPDB(name, ns string, selector labels.Set) *policyv1.PodDisruptionBudg
 	}
 }
 
-func createPod(name, ns, nodeName string, isReady bool, ls ...labels.Set) *corev1.Pod {
-	var label labels.Set = map[string]string{}
-	if len(ls) > 0 {
-		label = ls[0]
-	}
+func createPod(name, ns, nodeName string, isReady bool, ls labels.Set) *corev1.Pod {
 	ready := corev1.ConditionFalse
 	if isReady {
 		ready = corev1.ConditionTrue
@@ -211,7 +207,7 @@ func createPod(name, ns, nodeName string, isReady bool, ls ...labels.Set) *corev
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ns,
-			Labels:    label,
+			Labels:    ls,
 		},
 		Spec: corev1.PodSpec{
 			NodeName: nodeName,

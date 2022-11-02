@@ -21,9 +21,9 @@ func Test_PodIndexer(t *testing.T) {
 			TestNodeName:     "my-node",
 			ExpectedPodNames: []string{"my-test-pod"},
 			Objects: []runtime.Object{
-				createPod("my-test-pod", "default", "my-node", true),
-				createPod("my-foo-pod-2", "default", "my-foo-node", true),
-				createPod("my-foo-pod", "default", "my-foo-node", true),
+				createPod(createPodOptions{Name: "my-test-pod", Ns: "default", NodeName: "my-node"}),
+				createPod(createPodOptions{Name: "my-foo-pod-2", Ns: "default", NodeName: "my-foo-node"}),
+				createPod(createPodOptions{Name: "my-foo-pod", Ns: "default", NodeName: "my-foo-node"}),
 			},
 		},
 		{
@@ -31,9 +31,9 @@ func Test_PodIndexer(t *testing.T) {
 			TestNodeName:     "my-node",
 			ExpectedPodNames: []string{"my-test-pod", "my-test-pod-2"},
 			Objects: []runtime.Object{
-				createPod("my-test-pod", "default", "my-node", true),
-				createPod("my-test-pod-2", "default", "my-node", true),
-				createPod("my-foo-pod", "default", "my-foo-node", true),
+				createPod(createPodOptions{Name: "my-test-pod", Ns: "default", NodeName: "my-node"}),
+				createPod(createPodOptions{Name: "my-test-pod-2", Ns: "default", NodeName: "my-node"}),
+				createPod(createPodOptions{Name: "my-foo-pod", Ns: "default", NodeName: "my-foo-node"}),
 			},
 		},
 		{
@@ -41,9 +41,9 @@ func Test_PodIndexer(t *testing.T) {
 			TestNodeName:     "empty-node",
 			ExpectedPodNames: []string{},
 			Objects: []runtime.Object{
-				createPod("my-test-pod", "default", "my-node", true),
-				createPod("my-test-pod-2", "default", "my-node", true),
-				createPod("my-foo-pod", "default", "my-foo-node", true),
+				createPod(createPodOptions{Name: "my-test-pod", Ns: "default", NodeName: "my-node"}),
+				createPod(createPodOptions{Name: "my-test-pod-2", Ns: "default", NodeName: "my-node"}),
+				createPod(createPodOptions{Name: "my-foo-pod", Ns: "default", NodeName: "my-foo-node"}),
 			},
 		},
 		{

@@ -27,7 +27,7 @@ func Test_PDBIndexer(t *testing.T) {
 			TestPodNamespace: "default",
 			ExpectedPDBNames: []string{"my-pdb"},
 			Objects: []runtime.Object{
-				createPod("foo", "default", "my-node", false, labels),
+				createPod(createPodOptions{Name: "foo", Ns: "default", NodeName: "my-node", IsReady: false, LS: labels}),
 				createPDB("my-pdb", "default", labels),
 				createPDB("my-pdb-2", "default", map[string]string{"jaha": "isso"}),
 			},
@@ -38,7 +38,7 @@ func Test_PDBIndexer(t *testing.T) {
 			TestPodNamespace: "default",
 			ExpectedPDBNames: []string{"my-pdb", "my-pdb-2"},
 			Objects: []runtime.Object{
-				createPod("foo", "default", "my-node", false, labels),
+				createPod(createPodOptions{Name: "foo", Ns: "default", NodeName: "my-node", IsReady: false, LS: labels}),
 				createPDB("my-pdb", "default", labels),
 				createPDB("my-pdb-2", "default", labels),
 			},
@@ -49,8 +49,8 @@ func Test_PDBIndexer(t *testing.T) {
 			TestPodNamespace: "default",
 			ExpectedPDBNames: []string{"my-pdb"},
 			Objects: []runtime.Object{
-				createPod("foo", "default", "my-node", false, labels),
-				createPod("foo-2", "default", "my-node", false, labels),
+				createPod(createPodOptions{Name: "foo", Ns: "default", NodeName: "my-node", IsReady: false, LS: labels}),
+				createPod(createPodOptions{Name: "foo2", Ns: "default", NodeName: "my-node", IsReady: false, LS: labels}),
 				createPDB("my-pdb", "default", labels),
 				createPDB("my-pdb-2", "default", map[string]string{"jaha": "isso"}),
 			},
@@ -61,7 +61,7 @@ func Test_PDBIndexer(t *testing.T) {
 			TestPodNamespace: "default",
 			ExpectedPDBNames: []string{},
 			Objects: []runtime.Object{
-				createPod("foo", "default", "my-node", false, labels),
+				createPod(createPodOptions{Name: "foo", Ns: "default", NodeName: "my-node", IsReady: false, LS: labels}),
 				createPDB("my-pdb", "default", map[string]string{"foobar": "bar"}),
 				createPDB("my-pdb-2", "default", map[string]string{"jaha": "isso"}),
 			},
@@ -72,9 +72,9 @@ func Test_PDBIndexer(t *testing.T) {
 			TestPodNamespace: "default",
 			ExpectedPDBNames: []string{},
 			Objects: []runtime.Object{
-				createPod("foo", "default", "my-node", true, labels),
+				createPod(createPodOptions{Name: "foo", Ns: "default", NodeName: "my-node", IsReady: true, LS: labels}),
 				createPDB("my-pdb", "default", labels),
-				createPod("foo", "kube-system", "my-node", false, labels),
+				createPod(createPodOptions{Name: "foo", Ns: "kube-system", NodeName: "my-node", IsReady: false, LS: labels}),
 				createPDB("my-pdb", "kube-system", labels),
 			},
 		},
@@ -84,7 +84,7 @@ func Test_PDBIndexer(t *testing.T) {
 			TestPodNamespace: "default",
 			ExpectedPDBNames: []string{},
 			Objects: []runtime.Object{
-				createPod("foo", "default", "my-node", true, labels),
+				createPod(createPodOptions{Name: "foo", Ns: "default", NodeName: "my-node", IsReady: true, LS: labels}),
 				createPDB("my-pdb", "default", labels),
 				createPDB("my-pdb-2", "default", map[string]string{"jaha": "isso"}),
 			},
