@@ -54,7 +54,7 @@ import (
 
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
-	"github.com/planetlabs/draino/internal/kubernetes/informer"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	drainoklog "github.com/planetlabs/draino/internal/kubernetes/klog"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -558,13 +558,13 @@ func controllerRuntimeBootstrap() {
 		os.Exit(1)
 	}
 
-	informer, err := informer.New(mgr.GetClient(), mgr.GetCache())
+	indexer, err := index.New(mgr.GetClient(), mgr.GetCache())
 	if err != nil {
 		fmt.Printf("error while initializing informer: %v\n", err)
 		os.Exit(1)
 	}
 
 	// just to consume analyzer
-	_ = analyser.NewPDBAnalyser(informer)
+	_ = analyser.NewPDBAnalyser(indexer)
 	logger.Info("ControllerRuntime bootstrap")
 }

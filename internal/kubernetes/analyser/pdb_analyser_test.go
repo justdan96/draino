@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/planetlabs/draino/internal/kubernetes/informer"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/slices"
 	corev1 "k8s.io/api/core/v1"
@@ -144,10 +144,10 @@ func TestPDBAnalyser(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
-			informer, err := informer.NewFakeIndexer(ch, tt.Objects)
+			indexer, err := index.NewFakeIndexer(ch, tt.Objects)
 			assert.NoError(t, err)
 
-			analyser := NewPDBAnalyser(informer)
+			analyser := NewPDBAnalyser(indexer)
 			pods, err := analyser.BlockingPodsOnNode(context.Background(), tt.NodeName)
 			assert.NoError(t, err)
 

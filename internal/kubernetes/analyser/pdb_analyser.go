@@ -4,19 +4,19 @@ import (
 	"context"
 	"errors"
 
-	"github.com/planetlabs/draino/internal/kubernetes/informer"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 )
 
 var _ Interface = &PDBAnalyser{}
 
 type PDBAnalyser struct {
-	podInformer informer.PodIndexer
-	pdbInformer informer.PDBIndexer
+	podInformer index.PodIndexer
+	pdbInformer index.PDBIndexer
 }
 
-func NewPDBAnalyser(informer *informer.Indexer) Interface {
-	return &PDBAnalyser{podInformer: informer, pdbInformer: informer}
+func NewPDBAnalyser(indexer *index.Indexer) Interface {
+	return &PDBAnalyser{podInformer: indexer, pdbInformer: indexer}
 }
 
 func (a *PDBAnalyser) BlockingPodsOnNode(ctx context.Context, nodeName string) ([]BlockingPod, error) {
