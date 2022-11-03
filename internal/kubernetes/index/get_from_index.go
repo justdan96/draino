@@ -15,7 +15,7 @@ type GetSharedIndexInformer interface {
 func GetFromIndex[T any, PT interface {
 	clientcr.Object
 	*T
-}](ctx context.Context, i GetSharedIndexInformer, idx, val string) ([]PT, error) {
+}](ctx context.Context, i GetSharedIndexInformer, idx, key string) ([]PT, error) {
 	var t T
 	obj := PT(&t)
 	indexInformer, err := i.GetSharedIndexInformer(ctx, obj)
@@ -23,7 +23,7 @@ func GetFromIndex[T any, PT interface {
 		return nil, err
 	}
 	indexer := indexInformer.GetIndexer()
-	objs, err := indexer.ByIndex(idx, val)
+	objs, err := indexer.ByIndex(idx, key)
 	if err != nil {
 		return nil, err
 	}
