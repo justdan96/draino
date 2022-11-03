@@ -12,7 +12,12 @@ type GetSharedIndexInformer interface {
 	GetSharedIndexInformer(ctx context.Context, obj clientcr.Object) (cachek.SharedIndexInformer, error)
 }
 
-func GetFromIndex[T clientcr.Object](ctx context.Context, i GetSharedIndexInformer, idx, val string, obj T) ([]T, error) {
+func GetFromIndex[T any, PT interface {
+	clientcr.Object
+	*T
+}](ctx context.Context, i GetSharedIndexInformer, idx, val string) ([]PT, error) {
+	var t T
+	obj := PT(&t)
 	indexInformer, err := i.GetSharedIndexInformer(ctx, obj)
 	if err != nil {
 		return nil, err
@@ -22,5 +27,5 @@ func GetFromIndex[T clientcr.Object](ctx context.Context, i GetSharedIndexInform
 	if err != nil {
 		return nil, err
 	}
-	return utils.ParseObjects[T](objs)
+	return utils.ParseObjects[PT](objs)
 }

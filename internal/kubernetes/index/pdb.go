@@ -23,7 +23,7 @@ type PDBIndexer interface {
 
 func (i *Indexer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error) {
 	key := generatePodIndexKey(podName, ns)
-	return GetFromIndex(ctx, i, PDBBlockByPodIdx, key, &policyv1.PodDisruptionBudget{})
+	return GetFromIndex[policyv1.PodDisruptionBudget](ctx, i, PDBBlockByPodIdx, key)
 }
 
 func initPDBIndexer(client clientcr.Client, cache cachecr.Cache) error {

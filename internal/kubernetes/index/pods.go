@@ -16,7 +16,7 @@ type PodIndexer interface {
 }
 
 func (i *Indexer) GetPodsByNode(ctx context.Context, nodeName string) ([]*corev1.Pod, error) {
-	return GetFromIndex(ctx, i, PodsByNodeNameIdx, nodeName, &corev1.Pod{})
+	return GetFromIndex[corev1.Pod](ctx, i, PodsByNodeNameIdx, nodeName)
 }
 
 func initPodIndexer(cache cachecr.Cache) error {
