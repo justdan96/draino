@@ -10,11 +10,13 @@ import (
 
 var _ Interface = &PDBAnalyser{}
 
+// PDBAnalyser is an implementation of the analyser interface
 type PDBAnalyser struct {
 	podIndexer index.PodIndexer
 	pdbIndexer index.PDBIndexer
 }
 
+// NewPDBAnalyser creates an instance of the PDB analyzer
 func NewPDBAnalyser(indexer *index.Indexer) Interface {
 	return &PDBAnalyser{podIndexer: indexer, pdbIndexer: indexer}
 }

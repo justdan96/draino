@@ -17,11 +17,13 @@ var (
 	_ GetSharedIndexInformer = &Indexer{}
 )
 
+// Indexer is an implementation of multiple interfaces exported by the index module
 type Indexer struct {
 	client clientcr.Client
 	cache  cachecr.Cache
 }
 
+// New creates and initializes a new Indexer object
 func New(client clientcr.Client, cache cachecr.Cache) (*Indexer, error) {
 	informer := &Indexer{client, cache}
 
@@ -32,6 +34,7 @@ func New(client clientcr.Client, cache cachecr.Cache) (*Indexer, error) {
 	return informer, nil
 }
 
+// Init will initialize all the indices that are used / available.
 func (i *Indexer) Init() error {
 	if err := initPDBIndexer(i.client, i.cache); err != nil {
 		return err
@@ -42,10 +45,8 @@ func (i *Indexer) Init() error {
 	return nil
 }
 
-func (i *Indexer) WaitForCacheSync(ctx context.Context) bool {
-	return i.cache.WaitForCacheSync(ctx)
-}
-
+// GetSharedIndexInformer returns an index / informer for the given object type.
+// It will return an error if there is no or an invalid informer.
 func (i *Indexer) GetSharedIndexInformer(ctx context.Context, obj clientcr.Object) (cachek.SharedIndexInformer, error) {
 	informer, err := i.cache.GetInformer(ctx, obj)
 	if err != nil {

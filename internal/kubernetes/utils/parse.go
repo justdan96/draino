@@ -2,6 +2,8 @@ package utils
 
 import "errors"
 
+// ParseObjects will parse the given list of interfaces into the expected type
+// It will return an error if one of the objects is not convertible.
 func ParseObjects[T any](objs []interface{}) ([]T, error) {
 	res := make([]T, 0, len(objs))
 

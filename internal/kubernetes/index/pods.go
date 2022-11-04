@@ -9,9 +9,12 @@ import (
 	cachecr "sigs.k8s.io/controller-runtime/pkg/cache"
 )
 
+// PodsByNodeNameIdx is the index key used to index all pods running on a node
 const PodsByNodeNameIdx = "pods:by:node"
 
+// PodIndexer abstracts all the methods related to Pod based indices
 type PodIndexer interface {
+	// GetPodsByNode will return all the pods assigned to the given node
 	GetPodsByNode(ctx context.Context, nodeName string) ([]*corev1.Pod, error)
 }
 

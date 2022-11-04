@@ -15,9 +15,13 @@ import (
 	clientcr "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// PDBBlockByPodIdx is the index key used to index blocking pods for each PDB
 const PDBBlockByPodIdx = "pod:blocking:pdb"
 
+// PDBIndexer abstracts all the methods related to PDB based indices
 type PDBIndexer interface {
+	// GetPDBsBlockedByPod will return a list of PDBs that are blocked by the given pod.
+	// This means that the disruption budget are used by the Pod.
 	GetPDBsBlockedByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error)
 }
 
@@ -73,5 +77,6 @@ func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBu
 }
 
 func generatePodIndexKey(podName, ns string) string {
+	// This is needed because PDBs are namespace scoped, so we might have name collisions
 	return fmt.Sprintf("%s/%s", podName, ns)
 }
