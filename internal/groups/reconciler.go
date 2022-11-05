@@ -1,0 +1,78 @@
+package groups
+
+import (
+	"context"
+	"fmt"
+	"github.com/go-logr/logr"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"time"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+)
+
+const (
+	NodeWarmUpDelay = 30 * time.Second
+)
+
+type GroupRegistry struct {
+	client.Client
+	Log logr.Logger
+
+	NodeWarmUpDelay time.Duration
+	keyGetter       GroupKeyGetter
+	groupRunner     *GroupsRunner
+}
+
+func NewGroupRegistry(ctx context.Context, kclient client.Client, logger logr.Logger, factory RunnerFactory) *GroupRegistry {
+	return &GroupRegistry{
+		Client:          kclient,
+		Log:             logger,
+		NodeWarmUpDelay: NodeWarmUpDelay,
+		keyGetter:       factory.GroupKeyGetter(),
+		groupRunner:     NewGroupsRunner(ctx, factory, logger),
+	}
+}
+
+// Reconcile register the node in the reverse index per ProviderIP
+func (r *GroupRegistry) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	node := &v1.Node{}
+	if err := r.Get(ctx, req.NamespacedName, node); err != nil {
+		if errors.IsNotFound(err) {
+			return reconcile.Result{}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("get Node Fails: %v", err)
+	}
+
+	r.groupRunner.RunForGroup(r.keyGetter.GetGroupKey(node))
+
+	return ctrl.Result{}, nil
+}
+
+// SetupWithManager setups the controller with goroutine and predicates
+func (r *GroupRegistry) SetupWithManager(mgr ctrl.Manager) error {
+
+	initSchedulingGroupIndexer(r.Client, mgr.GetCache(), r.keyGetter)
+
+	return ctrl.NewControllerManagedBy(mgr).WithOptions(controller.Options{MaxConcurrentReconciles: 2}).
+		For(&v1.Node{}).
+		WithEventFilter(
+			predicate.Funcs{
+				CreateFunc:  func(event.CreateEvent) bool { return false }, // to early in the process the node might not be complete
+				DeleteFunc:  func(event.DeleteEvent) bool { return false }, // we don't care about delete, the runner will stop if the groups is empty
+				GenericFunc: func(event.GenericEvent) bool { return false },
+				UpdateFunc: func(evt event.UpdateEvent) bool {
+					if time.Now().Sub(evt.ObjectNew.GetCreationTimestamp().Time) < r.NodeWarmUpDelay {
+						return false // to early in the process the node might not be complete
+					}
+					return true
+				},
+			},
+		).
+		Complete(r)
+}
