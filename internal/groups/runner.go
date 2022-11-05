@@ -56,6 +56,7 @@ func (g *GroupsRunner) RunForGroup(key GroupKey) {
 func (g *GroupsRunner) runForGroup(key GroupKey) *RunnerInfo {
 	ctx, cancel := context.WithCancel(g.parentContext)
 	r := &RunnerInfo{
+		key:        key,
 		context:    ctx,
 		cancelFunc: cancel,
 	}
