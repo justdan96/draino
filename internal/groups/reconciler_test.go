@@ -3,6 +3,7 @@ package groups
 import (
 	"context"
 	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +55,8 @@ var _ RunnerFactory = &TestRunnerFactory{}
 
 func TestNewGroupRegistry(t *testing.T) {
 
+	RegisterMetrics(prometheus.NewRegistry())
+
 	tests := []struct {
 		name     string
 		factory  RunnerFactory
@@ -71,21 +74,21 @@ func TestNewGroupRegistry(t *testing.T) {
 				&corev1.Node{
 					ObjectMeta: meta.ObjectMeta{
 						Name:              "node-g1-1",
-						CreationTimestamp: meta.Time{time.Now().Add(-time.Hour)},
+						CreationTimestamp: meta.Time{Time: time.Now().Add(-time.Hour)},
 						Labels:            map[string]string{"key": "g1"},
 					},
 				},
 				&corev1.Node{
 					ObjectMeta: meta.ObjectMeta{
 						Name:              "node-g1-2",
-						CreationTimestamp: meta.Time{time.Now().Add(-time.Hour)},
+						CreationTimestamp: meta.Time{Time: time.Now().Add(-time.Hour)},
 						Labels:            map[string]string{"key": "g1"},
 					},
 				},
 				&corev1.Node{
 					ObjectMeta: meta.ObjectMeta{
 						Name:              "node-g2-0",
-						CreationTimestamp: meta.Time{time.Now().Add(-time.Hour)},
+						CreationTimestamp: meta.Time{Time: time.Now().Add(-time.Hour)},
 						Labels:            map[string]string{"key": "g2"},
 					},
 				},
@@ -111,7 +114,12 @@ func TestNewGroupRegistry(t *testing.T) {
 
 			testFactory := tt.factory.(*TestRunnerFactory)
 			assert.Equal(t, tt.runCount, testFactory.runCount)
+			assert.Equal(t, len(tt.runCount), gr.groupRunner.countRunners())
 			testFactory.Stop()
+
+			// wait for the cleanup
+			time.Sleep(100 * time.Millisecond)
+			assert.Equal(t, 0, gr.groupRunner.countRunners())
 		})
 	}
 }

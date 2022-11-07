@@ -3,6 +3,7 @@ package groups
 import (
 	"context"
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sync"
 )
 
@@ -32,12 +33,16 @@ type GroupsRunner struct {
 }
 
 func NewGroupsRunner(ctx context.Context, factory RunnerFactory, logger logr.Logger) *GroupsRunner {
-	return &GroupsRunner{
+	gr := &GroupsRunner{
 		parentContext: ctx,
 		running:       map[GroupKey]*RunnerInfo{},
 		factory:       factory,
 		logger:        logger,
 	}
+
+	go gr.observe()
+
+	return gr
 }
 
 func (g *GroupsRunner) RunForGroup(key GroupKey) {
@@ -74,4 +79,19 @@ func (g *GroupsRunner) runForGroup(key GroupKey) *RunnerInfo {
 		g.Unlock()
 	}(r)
 	return r
+}
+
+func (g *GroupsRunner) countRunners() int {
+	g.RLock()
+	c := len(g.running)
+	g.RUnlock()
+	return c
+}
+
+func (g *GroupsRunner) observe() {
+	wait.UntilWithContext(g.parentContext,
+		func(ctx context.Context) {
+			MetricsActiveRunner.SetAndPlanCleanup(float64(g.countRunners()), []string{}, false, 4*publicationPeriod, false)
+		},
+		publicationPeriod)
 }
