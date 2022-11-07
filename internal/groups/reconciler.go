@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/planetlabs/draino/internal/kubernetes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,24 +19,29 @@ import (
 
 const (
 	nodeWarmUpDelay = 30 * time.Second
+
+	// if the groupKey validation fails, and event will be added on the node with the reason
+	eventGroupOverrideMisconfiguration = "GroupOverrideBadConfiguration"
 )
 
 type GroupRegistry struct {
-	kclient client.Client
-	logger  logr.Logger
+	kclient       client.Client
+	logger        logr.Logger
+	eventRecorder kubernetes.EventRecorder
 
 	nodeWarmUpDelay time.Duration
 	keyGetter       GroupKeyGetter
 	groupRunner     *GroupsRunner
 }
 
-func NewGroupRegistry(ctx context.Context, kclient client.Client, logger logr.Logger, factory RunnerFactory) *GroupRegistry {
+func NewGroupRegistry(ctx context.Context, kclient client.Client, logger logr.Logger, eventRecorder kubernetes.EventRecorder, factory RunnerFactory) *GroupRegistry {
 	return &GroupRegistry{
 		kclient:         kclient,
 		logger:          logger,
 		nodeWarmUpDelay: nodeWarmUpDelay,
 		keyGetter:       factory.GroupKeyGetter(),
 		groupRunner:     NewGroupsRunner(ctx, factory, logger),
+		eventRecorder:   eventRecorder,
 	}
 }
 
@@ -47,6 +53,11 @@ func (r *GroupRegistry) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return reconcile.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get Node Fails: %v", err)
+	}
+
+	if valid, reason := r.keyGetter.ValidateGroupKey(node); !valid {
+		r.eventRecorder.NodeEventf(ctx, node, v1.EventTypeWarning, eventGroupOverrideMisconfiguration, reason)
+		r.logger.Info(eventGroupOverrideMisconfiguration+": default applies, no group override", "node", node.Name)
 	}
 
 	r.groupRunner.RunForGroup(r.keyGetter.GetGroupKey(node))

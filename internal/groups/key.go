@@ -9,6 +9,7 @@ type GroupKey string
 
 type GroupKeyGetter interface {
 	GetGroupKey(node *v1.Node) GroupKey
+	ValidateGroupKey(node *v1.Node) (valid bool, reason string)
 }
 
 type GroupKeyFromMetadata struct {
@@ -16,6 +17,8 @@ type GroupKeyFromMetadata struct {
 	annotationKeys             []string
 	groupOverrideAnnotationKey string
 }
+
+var _ GroupKeyGetter = &GroupKeyFromMetadata{}
 
 func NewGroupKeyFromNodeMetadata(labelsKeys, annotationKeys []string, groupOverrideAnnotationKey string) GroupKeyGetter {
 	return &GroupKeyFromMetadata{
@@ -40,6 +43,15 @@ const (
 	GroupKeySeparator = "#"
 )
 
+func (g *GroupKeyFromMetadata) ValidateGroupKey(node *v1.Node) (valid bool, reason string) {
+	if g.groupOverrideAnnotationKey != "" && node.Annotations != nil {
+		if override, ok := node.Annotations[g.groupOverrideAnnotationKey]; ok && override == "" {
+			return false, "Empty value for " + g.groupOverrideAnnotationKey + " annotation, group override feature will be ignored"
+		}
+	}
+	return true, ""
+}
+
 func (g *GroupKeyFromMetadata) GetGroupKey(node *v1.Node) GroupKey {
 	// slice that contains the values that will compose the groupKey
 	var values []string
@@ -50,9 +62,12 @@ func (g *GroupKeyFromMetadata) GetGroupKey(node *v1.Node) GroupKey {
 			// in that case we completely replace the groups, we remove the default groups.
 			// for example, this allows users to define a kubernetes-cluster wide groups if the default is set to namespace
 			values = strings.Split(override, ",")
+			return GroupKey(strings.Join(values, GroupKeySeparator))
 		}
-	} else { // let's build the groups values from labels and annotations
-		values = append(getValueOrEmpty(node.Labels, g.labelsKeys), getValueOrEmpty(node.Annotations, g.annotationKeys)...)
+		// if the override value is not set, we fallback to the default case with no override
 	}
+	// let's build the groups values from labels and annotations
+	values = append(getValueOrEmpty(node.Labels, g.labelsKeys), getValueOrEmpty(node.Annotations, g.annotationKeys)...)
+
 	return GroupKey(strings.Join(values, GroupKeySeparator))
 }
