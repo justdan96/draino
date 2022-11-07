@@ -29,7 +29,7 @@ func createCache(inf informers.SharedInformerFactory, scheme *runtime.Scheme) ca
 
 }
 
-func NewFakeIndexer(ch chan struct{}, objects []runtime.Object) (*Indexer, error) {
+func NewFakeIndexer(ch chan struct{}, objects ...runtime.Object) (*Indexer, error) {
 	fakeClient := fake.NewFakeClient(objects...)
 	fakeKubeClient := fakeclient.NewSimpleClientset(objects...)
 
@@ -47,12 +47,12 @@ func NewFakeIndexer(ch chan struct{}, objects []runtime.Object) (*Indexer, error
 	return informer, nil
 }
 
-func NewFakePDBIndexer(ch chan struct{}, objects []runtime.Object) (PDBIndexer, error) {
-	return NewFakeIndexer(ch, objects)
+func NewFakePDBIndexer(ch chan struct{}, objects ...runtime.Object) (PDBIndexer, error) {
+	return NewFakeIndexer(ch, objects...)
 }
 
-func NewFakePodIndexer(ch chan struct{}, objects []runtime.Object) (PodIndexer, error) {
-	return NewFakeIndexer(ch, objects)
+func NewFakePodIndexer(ch chan struct{}, objects ...runtime.Object) (PodIndexer, error) {
+	return NewFakeIndexer(ch, objects...)
 }
 
 type createPodOptions struct {

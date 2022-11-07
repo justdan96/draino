@@ -29,6 +29,7 @@ import (
 	"github.com/DataDog/compute-go/controllerruntime"
 	"github.com/DataDog/compute-go/infraparameters"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcore "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -248,6 +249,12 @@ func main() {
 	cs, err := client.NewForConfig(c)
 	kingpin.FatalIfError(err, "cannot create Kubernetes client")
 
+	mgr, err := getManager()
+	kingpin.FatalIfError(err, "cannot create controller manager")
+
+	indexer, err := index.New(mgr.GetClient(), mgr.GetCache())
+	kingpin.FatalIfError(err, "cannot create indexer")
+
 	// use a Go context so we can tell the leaderelection and other pieces when we want to step down
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -382,6 +389,7 @@ func main() {
 
 	cordonDrainer := kubernetes.NewAPICordonDrainer(cs,
 		eventRecorder,
+		analyser.NewPDBAnalyser(indexer),
 		kubernetes.MaxGracePeriod(*maxGracePeriod),
 		kubernetes.EvictionHeadroom(*evictionHeadroom),
 		kubernetes.WithSkipDrain(*skipDrain),
@@ -527,44 +535,31 @@ func (r *httpRunner) Run(stop <-chan struct{}) {
 	cancel()
 }
 
-// controllerRuntimeBootstrap This function is not called, it is just there to prepare the ground in terms of dependencies for next step where we will include ControllerRuntime library
-func controllerRuntimeBootstrap() {
+// getManager This function is not called, it is just there to prepare the ground in terms of dependencies for next step where we will include ControllerRuntime library
+func getManager() (manager.Manager, error) {
 	cfg, fs := controllerruntime.ConfigFromFlags(false, false)
 	if err := fs.Parse(os.Args[1:]); err != nil {
-		fmt.Printf("error getting arguments: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 	cfg.InfraParam.UpdateWithKubeContext(cfg.KubeClientConfig.ConfigFile, "")
 	validationOptions := infraparameters.GetValidateAll()
 	validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject = false, false, false
 	if err := cfg.InfraParam.Validate(validationOptions); err != nil {
-		fmt.Printf("infra param validation error: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 
 	cfg.ManagerOptions.Scheme = runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(cfg.ManagerOptions.Scheme); err != nil {
-		fmt.Printf("error while adding client-go scheme: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 	if err := core.AddToScheme(cfg.ManagerOptions.Scheme); err != nil {
-		fmt.Printf("error while adding v1 scheme: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 
-	mgr, logger, _, err := controllerruntime.NewManager(cfg)
+	mgr, _, _, err := controllerruntime.NewManager(cfg)
 	if err != nil {
-		fmt.Printf("error while creating manager: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 
-	indexer, err := index.New(mgr.GetClient(), mgr.GetCache())
-	if err != nil {
-		fmt.Printf("error while initializing informer: %v\n", err)
-		os.Exit(1)
-	}
-
-	// just to consume analyzer
-	_ = analyser.NewPDBAnalyser(indexer)
-	logger.Info("ControllerRuntime bootstrap")
+	return mgr, nil
 }

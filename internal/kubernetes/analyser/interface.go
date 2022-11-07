@@ -18,4 +18,5 @@ type BlockingPod struct {
 type Interface interface {
 	// BlockingPodsOnNode returns all pods running on the given node, that are taking a disruption budget
 	BlockingPodsOnNode(ctx context.Context, nodeName string) ([]BlockingPod, error)
+	BlockedPDBsByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error)
 }

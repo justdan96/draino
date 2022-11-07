@@ -59,7 +59,7 @@ func Test_PodIndexer(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
 
-			informer, err := NewFakePodIndexer(ch, tt.Objects)
+			informer, err := NewFakePodIndexer(ch, tt.Objects...)
 			assert.NoError(t, err)
 
 			pods, err := informer.GetPodsByNode(context.TODO(), tt.TestNodeName)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
+	policyv1 "k8s.io/api/policy/v1"
 )
 
 var _ Interface = &PDBAnalyser{}
@@ -48,4 +49,8 @@ func (a *PDBAnalyser) BlockingPodsOnNode(ctx context.Context, nodeName string) (
 	}
 
 	return blockingPods, nil
+}
+
+func (a *PDBAnalyser) BlockedPDBsByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error) {
+	return a.pdbIndexer.GetPDBsBlockedByPod(ctx, podName, ns)
 }

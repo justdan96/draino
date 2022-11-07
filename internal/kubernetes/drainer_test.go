@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/planetlabs/draino/internal/kubernetes/analyser"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	core "k8s.io/api/core/v1"
@@ -176,11 +178,16 @@ func TestCordon(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			ch := make(chan struct{})
+			defer close(ch)
+			idx, _ := index.NewFakeIndexer(ch)
+			analyser := analyser.NewPDBAnalyser(idx)
+
 			c := fake.NewSimpleClientset(tc.node)
 			for _, r := range tc.reactions {
 				c.PrependReactor(r.verb, r.resource, r.Fn())
 			}
-			d := NewAPICordonDrainer(c, NewEventRecorder(&record.FakeRecorder{}), WithCordonLimiter(&fakeLimiter{}))
+			d := NewAPICordonDrainer(c, NewEventRecorder(&record.FakeRecorder{}), analyser, WithCordonLimiter(&fakeLimiter{}))
 			if err := d.Cordon(ctx, tc.node, tc.mutators...); err != nil {
 				for _, r := range tc.reactions {
 					if errors.Is(err, r.err) {
@@ -264,11 +271,16 @@ func TestUncordon(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			ch := make(chan struct{})
+			defer close(ch)
+			idx, _ := index.NewFakeIndexer(ch)
+			analyser := analyser.NewPDBAnalyser(idx)
+
 			c := fake.NewSimpleClientset(tc.node)
 			for _, r := range tc.reactions {
 				c.PrependReactor(r.verb, r.resource, r.Fn())
 			}
-			d := NewAPICordonDrainer(c, NewEventRecorder(&record.FakeRecorder{}))
+			d := NewAPICordonDrainer(c, NewEventRecorder(&record.FakeRecorder{}), analyser)
 			if err := d.Uncordon(ctx, tc.node, tc.mutators...); err != nil {
 				for _, r := range tc.reactions {
 					if errors.Is(err, r.err) {
@@ -304,14 +316,14 @@ func TestDrain(t *testing.T) {
 			name: "EvictOnePod",
 			node: &core.Node{ObjectMeta: meta.ObjectMeta{Name: nodeName}, Spec: core.NodeSpec{Unschedulable: true}},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					ret: &core.PodList{Items: []core.Pod{
-						core.Pod{
+						{
 							ObjectMeta: meta.ObjectMeta{
 								Name: podName,
-								OwnerReferences: []meta.OwnerReference{meta.OwnerReference{
+								OwnerReferences: []meta.OwnerReference{{
 									Controller: &isController,
 									Kind:       "Deployment",
 								}},
@@ -320,12 +332,12 @@ func TestDrain(t *testing.T) {
 						},
 					}},
 				},
-				reactor{
+				{
 					verb:        "create",
 					resource:    "pods",
 					subresource: "eviction",
 				},
-				reactor{
+				{
 					verb:     "get",
 					resource: "pods",
 					err:      apierrors.NewNotFound(schema.GroupResource{Resource: "pod"}, podName),
@@ -346,14 +358,14 @@ func TestDrain(t *testing.T) {
 			node:    &core.Node{ObjectMeta: meta.ObjectMeta{Name: nodeName}, Spec: core.NodeSpec{Unschedulable: true}},
 			options: []APICordonDrainerOption{MaxGracePeriod(1 * time.Second), EvictionHeadroom(1 * time.Second)},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					ret: &core.PodList{Items: []core.Pod{
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: podName}},
+						{ObjectMeta: meta.ObjectMeta{Name: podName}},
 					}},
 				},
-				reactor{
+				{
 					verb:        "create",
 					resource:    "pods",
 					subresource: "eviction",
@@ -365,14 +377,14 @@ func TestDrain(t *testing.T) {
 			name: "ErrorEvictingPod",
 			node: &core.Node{ObjectMeta: meta.ObjectMeta{Name: nodeName}, Spec: core.NodeSpec{Unschedulable: true}},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					ret: &core.PodList{Items: []core.Pod{
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: podName}},
+						{ObjectMeta: meta.ObjectMeta{Name: podName}},
 					}},
 				},
-				reactor{
+				{
 					verb:        "create",
 					resource:    "pods",
 					subresource: "eviction",
@@ -385,14 +397,14 @@ func TestDrain(t *testing.T) {
 			node:    &core.Node{ObjectMeta: meta.ObjectMeta{Name: nodeName}, Spec: core.NodeSpec{Unschedulable: true}},
 			options: []APICordonDrainerOption{MaxGracePeriod(1 * time.Second), EvictionHeadroom(1 * time.Second)},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					ret: &core.PodList{Items: []core.Pod{
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: podName}},
+						{ObjectMeta: meta.ObjectMeta{Name: podName}},
 					}},
 				},
-				reactor{
+				{
 					verb:        "create",
 					resource:    "pods",
 					subresource: "eviction",
@@ -405,19 +417,19 @@ func TestDrain(t *testing.T) {
 			name: "EvictedPodReplacedWithDifferentUID",
 			node: &core.Node{ObjectMeta: meta.ObjectMeta{Name: nodeName}, Spec: core.NodeSpec{Unschedulable: true}},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					ret: &core.PodList{Items: []core.Pod{
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: podName, UID: "a"}},
+						{ObjectMeta: meta.ObjectMeta{Name: podName, UID: "a"}},
 					}},
 				},
-				reactor{
+				{
 					verb:        "create",
 					resource:    "pods",
 					subresource: "eviction",
 				},
-				reactor{
+				{
 					verb:     "get",
 					resource: "pods",
 					ret:      &core.Pod{ObjectMeta: meta.ObjectMeta{Name: podName, UID: "b"}},
@@ -428,19 +440,19 @@ func TestDrain(t *testing.T) {
 			name: "ErrorConfirmingPodDeletion",
 			node: &core.Node{ObjectMeta: meta.ObjectMeta{Name: nodeName}, Spec: core.NodeSpec{Unschedulable: true}},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					ret: &core.PodList{Items: []core.Pod{
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: podName}},
+						{ObjectMeta: meta.ObjectMeta{Name: podName}},
 					}},
 				},
-				reactor{
+				{
 					verb:        "create",
 					resource:    "pods",
 					subresource: "eviction",
 				},
-				reactor{
+				{
 					verb:     "get",
 					resource: "pods",
 					err:      errors.New("nope"),
@@ -458,20 +470,20 @@ func TestDrain(t *testing.T) {
 				return true, "", nil
 			})},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					ret: &core.PodList{Items: []core.Pod{
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: "lamePod"}},
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: podName}},
+						{ObjectMeta: meta.ObjectMeta{Name: "lamePod"}},
+						{ObjectMeta: meta.ObjectMeta{Name: podName}},
 					}},
 				},
-				reactor{
+				{
 					verb:        "create",
 					resource:    "pods",
 					subresource: "eviction",
 				},
-				reactor{
+				{
 					verb:     "get",
 					resource: "pods",
 					err:      apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, podName),
@@ -488,20 +500,20 @@ func TestDrain(t *testing.T) {
 				return true, "", nil
 			})},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					ret: &core.PodList{Items: []core.Pod{
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: "explodeyPod"}},
-						core.Pod{ObjectMeta: meta.ObjectMeta{Name: podName}},
+						{ObjectMeta: meta.ObjectMeta{Name: "explodeyPod"}},
+						{ObjectMeta: meta.ObjectMeta{Name: podName}},
 					}},
 				},
-				reactor{
+				{
 					verb:        "create",
 					resource:    "pods",
 					subresource: "eviction",
 				},
-				reactor{
+				{
 					verb:     "get",
 					resource: "pods",
 					err:      apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, podName),
@@ -518,7 +530,7 @@ func TestDrain(t *testing.T) {
 			name: "ErrorListingPods",
 			node: &core.Node{ObjectMeta: meta.ObjectMeta{Name: nodeName}, Spec: core.NodeSpec{Unschedulable: true}},
 			reactions: []reactor{
-				reactor{
+				{
 					verb:     "list",
 					resource: "pods",
 					err:      errors.New("nope"),
@@ -550,8 +562,13 @@ func TestDrain(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			ch := make(chan struct{})
+			defer close(ch)
+			idx, _ := index.NewFakeIndexer(ch, tc.node)
+			analyser := analyser.NewPDBAnalyser(idx)
+
 			c := newFakeClientSet([]runtime.Object{tc.node}, tc.reactions...)
-			d := NewAPICordonDrainer(c, NewEventRecorder(&record.FakeRecorder{}), tc.options...)
+			d := NewAPICordonDrainer(c, NewEventRecorder(&record.FakeRecorder{}), analyser, tc.options...)
 			if err := d.Drain(ctx, tc.node); err != nil {
 				for _, r := range tc.reactions {
 					if errors.Is(err, r.err) {
@@ -757,8 +774,13 @@ func TestMarkDrain(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			ch := make(chan struct{})
+			defer close(ch)
+			idx, _ := index.NewFakeIndexer(ch, tc.node)
+			analyser := analyser.NewPDBAnalyser(idx)
+
 			c := fake.NewSimpleClientset(tc.node)
-			d := NewAPICordonDrainer(c, NewEventRecorder(&record.FakeRecorder{}))
+			d := NewAPICordonDrainer(c, NewEventRecorder(&record.FakeRecorder{}), analyser)
 			{
 				n, err := c.CoreV1().Nodes().Get(context.Background(), tc.node.GetName(), meta.GetOptions{})
 				if err != nil {

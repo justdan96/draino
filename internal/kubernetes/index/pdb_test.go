@@ -103,7 +103,7 @@ func Test_PDBIndexer(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
 
-			informer, err := NewFakePDBIndexer(ch, tt.Objects)
+			informer, err := NewFakePDBIndexer(ch, tt.Objects...)
 			assert.NoError(t, err)
 
 			pdbs, err := informer.GetPDBsBlockedByPod(context.TODO(), tt.TestPodName, tt.TestPodNamespace)

@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"go.opencensus.io/tag"
 	"go.uber.org/zap"
 	httptrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http"
@@ -259,6 +260,7 @@ type APICordonDrainer struct {
 	filter                 PodFilterFunc
 	cordonLimiter          CordonLimiter
 	nodeReplacementLimiter NodeReplacementLimiter
+	pdbAnalyser            analyser.Interface
 
 	maxGracePeriod             time.Duration
 	evictionHeadroom           time.Duration
@@ -353,7 +355,7 @@ func WithGlobalConfig(globalConfig GlobalConfig) APICordonDrainerOption {
 
 // NewAPICordonDrainer returns a CordonDrainer that cordons and drains nodes via
 // the Kubernetes API.
-func NewAPICordonDrainer(c kubernetes.Interface, eventRecorder EventRecorder, ao ...APICordonDrainerOption) *APICordonDrainer {
+func NewAPICordonDrainer(c kubernetes.Interface, eventRecorder EventRecorder, pdbAnalyser analyser.Interface, ao ...APICordonDrainerOption) *APICordonDrainer {
 	d := &APICordonDrainer{
 		c:                c,
 		l:                zap.NewNop(),
@@ -362,6 +364,7 @@ func NewAPICordonDrainer(c kubernetes.Interface, eventRecorder EventRecorder, ao
 		evictionHeadroom: DefaultEvictionOverhead,
 		skipDrain:        DefaultSkipDrain,
 		eventRecorder:    eventRecorder,
+		pdbAnalyser:      pdbAnalyser,
 	}
 	for _, o := range ao {
 		o(d)
@@ -754,7 +757,27 @@ func (d *APICordonDrainer) evictWithKubernetesAPI(ctx context.Context, node *cor
 	span, ctx := tracer.StartSpanFromContext(ctx, "evictWithKubernetesAPI")
 	defer span.Finish()
 
+	pdbs, err := d.pdbAnalyser.BlockedPDBsByPod(ctx, pod.GetName(), pod.GetNamespace())
+	if err != nil {
+		return err
+	}
+
 	gracePeriod := d.getGracePeriod(pod)
+	// If the given pod is blocking at least one PDB, we'll perform a delete instead of an eviction action.
+	// Otherwise, the evict action would fail due to missing disruption budget.
+	if len(pdbs) > 0 {
+		return d.evictionSequence(ctx, node, pod, abort,
+			func() error {
+				return d.c.CoreV1().Pods(pod.GetNamespace()).Delete(ctx, pod.GetName(), meta.DeleteOptions{GracePeriodSeconds: &gracePeriod})
+			},
+			// error handling function
+			func(err error) error {
+				// TODO check if we need to do something here
+				return err
+			},
+		)
+	}
+
 	return d.evictionSequence(ctx, node, pod, abort,
 		// eviction function
 		func() error {
