@@ -527,14 +527,18 @@ func (h *DrainingResourceEventHandler) shouldUncordon(ctx context.Context, n *co
 	badConditions := GetNodeOffendingConditions(n, h.globalConfig.SuppliedConditions)
 	if len(badConditions) == 0 {
 		LogForVerboseNode(logger, n, "No offending condition")
-		previousConditions := parseConditionsFromAnnotation(n)
-		if len(previousConditions) > 0 {
-			for _, previousCondition := range previousConditions {
-				for _, nodeCondition := range n.Status.Conditions {
-					if previousCondition.Type == nodeCondition.Type &&
-						previousCondition.Status != nodeCondition.Status &&
-						time.Since(nodeCondition.LastTransitionTime.Time) >= previousCondition.MinimumDuration {
-						return true, nil
+		previousConditions, err := parseConditionsFromAnnotation(n)
+		if err != nil {
+			h.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, "conditionFormat", "Cannot parse condition(s) set in the annotations")
+		} else {
+			if len(previousConditions) > 0 {
+				for _, previousCondition := range previousConditions {
+					for _, nodeCondition := range n.Status.Conditions {
+						if previousCondition.Type == nodeCondition.Type &&
+							previousCondition.Status != nodeCondition.Status &&
+							time.Since(nodeCondition.LastTransitionTime.Time) >= previousCondition.MinimumDuration {
+							return true, nil
+						}
 					}
 				}
 			}
@@ -561,12 +565,12 @@ func (h *DrainingResourceEventHandler) shouldUncordon(ctx context.Context, n *co
 	return false, nil
 }
 
-func parseConditionsFromAnnotation(n *core.Node) []SuppliedCondition {
+func parseConditionsFromAnnotation(n *core.Node) ([]SuppliedCondition, error) {
 	if n.Annotations == nil {
-		return nil
+		return nil, nil
 	}
 	if n.Annotations[drainoConditionsAnnotationKey] == "" {
-		return nil
+		return nil, nil
 	}
 	rawConditions := strings.Split(n.Annotations[drainoConditionsAnnotationKey], ";")
 	return ParseConditions(rawConditions)
