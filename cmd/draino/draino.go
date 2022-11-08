@@ -137,6 +137,9 @@ func main() {
 		storageClassesAllowingVolumeDeletion = app.Flag("storage-class-allows-pv-deletion", "Storage class for which persistent volume (and associated claim) deletion is allowed. May be specified multiple times.").PlaceHolder("storageClassName").Strings()
 		pvcManagementByDefault               = app.Flag("pvc-management-by-default", "PVC management is automatically activated for a workload that do not use eviction++").Default("false").Bool()
 
+		// Options used for taking a decision if a Pod should be evicted or deleted
+		podWarmUpDuration = app.Flag("pod-warm-up-duration", "Respected warm-up time for a pod to properly start, before it will be deleted during a node drain.").Default("5m").Duration()
+
 		configName          = app.Flag("config-name", "Name of the draino configuration").Required().String()
 		resetScopeLabel     = app.Flag("reset-config-labels", "Reset the scope label on the nodes").Bool()
 		scopeAnalysisPeriod = app.Flag("scope-analysis-period", "Period to run the scope analysis and generate metric").Default((5 * time.Minute).String()).Duration()
@@ -404,6 +407,7 @@ func main() {
 		kubernetes.WithMaxDrainAttemptsBeforeFail(*maxDrainAttemptsBeforeFail),
 		kubernetes.WithGlobalConfig(globalConfig),
 		kubernetes.WithAPICordonDrainerLogger(log),
+		kubernetes.WithPodWarmUpDuration(*podWarmUpDuration),
 	)
 
 	podFilteringFunc := kubernetes.NewPodFiltersIgnoreCompletedPods(
@@ -539,26 +543,26 @@ func (r *httpRunner) Run(stop <-chan struct{}) {
 func getManager() (manager.Manager, error) {
 	cfg, fs := controllerruntime.ConfigFromFlags(false, false)
 	if err := fs.Parse(os.Args[1:]); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting arguments: %v\n", err)
 	}
 	cfg.InfraParam.UpdateWithKubeContext(cfg.KubeClientConfig.ConfigFile, "")
 	validationOptions := infraparameters.GetValidateAll()
 	validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject = false, false, false
 	if err := cfg.InfraParam.Validate(validationOptions); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("infra param validation error: %v\n", err)
 	}
 
 	cfg.ManagerOptions.Scheme = runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(cfg.ManagerOptions.Scheme); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while adding client-go scheme: %v\n", err)
 	}
 	if err := core.AddToScheme(cfg.ManagerOptions.Scheme); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while adding v1 scheme: %v\n", err)
 	}
 
 	mgr, _, _, err := controllerruntime.NewManager(cfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while creating manager: %v\n", err)
 	}
 
 	return mgr, nil

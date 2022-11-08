@@ -6,7 +6,9 @@ import (
 
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
+	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 var _ Interface = &PDBAnalyser{}
@@ -51,6 +53,47 @@ func (a *PDBAnalyser) BlockingPodsOnNode(ctx context.Context, nodeName string) (
 	return blockingPods, nil
 }
 
-func (a *PDBAnalyser) BlockedPDBsByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error) {
-	return a.pdbIndexer.GetPDBsBlockedByPod(ctx, podName, ns)
+func (a *PDBAnalyser) IsPodTakingAllBudget(ctx context.Context, pod *corev1.Pod) (bool, error) {
+	pdbs, err := a.pdbIndexer.GetPDBsBlockedByPod(ctx, pod.GetName(), pod.GetNamespace())
+	if err != nil {
+		return false, err
+	}
+
+	// If there is no (blocked) PDB, it doesn't take any budget.
+	// If there are multiple PDBs the pod cannot be evicted anyways.
+	if len(pdbs) != 1 {
+		return false, nil
+	}
+	pdb := pdbs[0]
+
+	if isPDBLocked(pdb) {
+		return false, nil
+	}
+
+	// If DesiredHealthy - CurrentHealthy is 1, we know that the given pod is taking the budget as it's not ready.
+	// If it's bigger than 1, more pods included in the same PDB are taking the budget
+	return (pdb.Status.DesiredHealthy - (pdb.Status.CurrentHealthy + 1)) == 0, nil
+}
+
+func isPDBLocked(pdb *policyv1.PodDisruptionBudget) bool {
+	maxUnavailable := pdb.Spec.MaxUnavailable
+	if maxUnavailable != nil {
+		if maxUnavailable.Type == intstr.Int && maxUnavailable.IntVal == 0 {
+			return true
+		}
+		if maxUnavailable.Type == intstr.String && maxUnavailable.StrVal == "0%" {
+			return true
+		}
+	}
+
+	minAvailable := pdb.Spec.MinAvailable
+	if minAvailable != nil {
+		// TODO think about the intval case
+		// maybe something like minAvail > podCount
+		if minAvailable.Type == intstr.String && minAvailable.StrVal == "100%" {
+			return true
+		}
+	}
+
+	return false
 }

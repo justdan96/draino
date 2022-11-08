@@ -256,16 +256,17 @@ type APICordonDrainer struct {
 	l                  *zap.Logger
 	eventRecorder      EventRecorder
 	runtimeObjectStore RuntimeObjectStore
+	pdbAnalyser        analyser.Interface
 
 	filter                 PodFilterFunc
 	cordonLimiter          CordonLimiter
 	nodeReplacementLimiter NodeReplacementLimiter
-	pdbAnalyser            analyser.Interface
 
 	maxGracePeriod             time.Duration
 	evictionHeadroom           time.Duration
 	skipDrain                  bool
 	maxDrainAttemptsBeforeFail int32
+	podWarmUpDuration          time.Duration
 
 	globalConfig GlobalConfig
 
@@ -350,6 +351,12 @@ func WithMaxDrainAttemptsBeforeFail(maxDrainAttemptsBeforeFail int) APICordonDra
 func WithGlobalConfig(globalConfig GlobalConfig) APICordonDrainerOption {
 	return func(d *APICordonDrainer) {
 		d.globalConfig = globalConfig
+	}
+}
+
+func WithPodWarmUpDuration(podWarmUpTime time.Duration) APICordonDrainerOption {
+	return func(d *APICordonDrainer) {
+		d.podWarmUpDuration = podWarmUpTime
 	}
 }
 
@@ -757,22 +764,15 @@ func (d *APICordonDrainer) evictWithKubernetesAPI(ctx context.Context, node *cor
 	span, ctx := tracer.StartSpanFromContext(ctx, "evictWithKubernetesAPI")
 	defer span.Finish()
 
-	pdbs, err := d.pdbAnalyser.BlockedPDBsByPod(ctx, pod.GetName(), pod.GetNamespace())
-	if err != nil {
-		return err
-	}
-
 	gracePeriod := d.getGracePeriod(pod)
-	// If the given pod is blocking at least one PDB, we'll perform a delete instead of an eviction action.
-	// Otherwise, the evict action would fail due to missing disruption budget.
-	if len(pdbs) > 0 {
+	// In some cases we need to delete instead of evict a pod, because we know already that the eviction will fail
+	if d.shouldDeletePod(ctx, pod) {
 		return d.evictionSequence(ctx, node, pod, abort,
 			func() error {
 				return d.c.CoreV1().Pods(pod.GetNamespace()).Delete(ctx, pod.GetName(), meta.DeleteOptions{GracePeriodSeconds: &gracePeriod})
 			},
 			// error handling function
 			func(err error) error {
-				// TODO check if we need to do something here
 				return err
 			},
 		)
@@ -798,6 +798,24 @@ func (d *APICordonDrainer) evictWithKubernetesAPI(ctx context.Context, node *cor
 		},
 	)
 
+}
+
+// shouldDeletePod checks if the given pod is not ready and blocking any PDB.
+// If this is the case, the pod cannot be evicted and has to be deleted.
+// It will return false in case of an internal error or if the pod is fairly new (creationTimestamp + warmup < now)
+func (d *APICordonDrainer) shouldDeletePod(ctx context.Context, pod *core.Pod) bool {
+	warmup := pod.ObjectMeta.CreationTimestamp.Add(d.podWarmUpDuration)
+
+	// If the pod is too new, we don't want to perform any action
+	if time.Now().After(warmup) {
+		return false
+	}
+
+	isTakingBudget, err := d.pdbAnalyser.IsPodTakingAllBudget(ctx, pod)
+	if err != nil {
+		return false
+	}
+	return isTakingBudget
 }
 
 // evictWithOperatorAPI This function calls an Operator endpoint to perform the eviction instead of the classic kubernetes eviction endpoint

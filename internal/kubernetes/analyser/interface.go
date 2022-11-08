@@ -18,5 +18,6 @@ type BlockingPod struct {
 type Interface interface {
 	// BlockingPodsOnNode returns all pods running on the given node, that are taking a disruption budget
 	BlockingPodsOnNode(ctx context.Context, nodeName string) ([]BlockingPod, error)
-	BlockedPDBsByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error)
+	// IsPodTakingAllBudget will check if the given pod is taking all the disruption budget of the corresponding PDB
+	IsPodTakingAllBudget(ctx context.Context, pod *corev1.Pod) (bool, error)
 }
