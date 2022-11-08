@@ -222,7 +222,7 @@ func TestNodeLabelFilter(t *testing.T) {
 	for _, tc := range cases {
 
 		t.Run(tc.name, func(t *testing.T) {
-			filter, err := NewNodeLabelFilter(&tc.expression, log)
+			filter, err := NewNodeLabelFilter(tc.expression, log)
 			if err != nil {
 				t.Errorf("Filter expression: %v, did not compile", err)
 				t.FailNow()
@@ -368,7 +368,7 @@ func TestOldNodeLabelFilter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			labelExpr, err := ConvertLabelsToFilterExpr(tc.labels)
 
-			filter, err := NewNodeLabelFilter(labelExpr, log)
+			filter, err := NewNodeLabelFilter(*labelExpr, log)
 			if err != nil {
 				t.Errorf("Filter expression: %v, did not compile", err)
 				t.FailNow()
@@ -423,6 +423,7 @@ func TestParseConditions(t *testing.T) {
 		name       string
 		conditions []string
 		expect     []SuppliedCondition
+		expectErr  bool
 	}{
 		{
 			name:       "OldFormat",
@@ -442,11 +443,20 @@ func TestParseConditions(t *testing.T) {
 			conditions: []string{"Ready=Unknown,30m"},
 			expect:     []SuppliedCondition{SuppliedCondition{core.NodeConditionType("Ready"), core.ConditionStatus("Unknown"), time.Duration(30) * time.Minute}},
 		},
+		{
+			name:       "FormatError",
+			conditions: []string{"Ready=Unknown,30err"},
+			expect:     nil,
+			expectErr:  true,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			parsed := ParseConditions(tc.conditions)
+			parsed, err := ParseConditions(tc.conditions)
+			if !(tc.expectErr == (err != nil)) {
+				t.Errorf("expect err is correct. Expected %v", tc.expect)
+			}
 			if !reflect.DeepEqual(tc.expect, parsed) {
 				t.Errorf("expect %v, got: %v", tc.expect, parsed)
 			}
