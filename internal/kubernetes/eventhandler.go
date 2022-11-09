@@ -89,6 +89,7 @@ var (
 	MeasureSkippedCordon           = stats.Int64("draino/cordon_skipped", "Number of cordon activities that have been skipped due filtering.", stats.UnitDimensionless)
 	MeasureNodesReplacementRequest = stats.Int64("draino/nodes_replacement_request", "Number of nodes replacement requested.", stats.UnitDimensionless)
 	MeasurePreprovisioningLatency  = stats.Float64("draino/nodes_preprovisioning_latency", "Latency to get a node preprovisioned", stats.UnitMilliseconds)
+	MeasurePodsRemoved             = stats.Int64("draino/pods_removed", "Number of pods removed from nodes.", stats.UnitDimensionless)
 
 	TagNodeName, _                        = tag.NewKey("node_name")
 	TagConditions, _                      = tag.NewKey("conditions")
@@ -110,6 +111,7 @@ var (
 	TagUserOptInViaPodAnnotation, _       = tag.NewKey("user_opt_in_via_pod_annotation")
 	TagUserAllowedConditionsAnnotation, _ = tag.NewKey("user_allowed_conditions_annotation")
 	TagUserEvictionURL, _                 = tag.NewKey("eviction_url")
+	TagPodRemovalType, _                  = tag.NewKey("removal_type")
 )
 
 // A DrainingResourceEventHandler cordons and drains any added or updated nodes.

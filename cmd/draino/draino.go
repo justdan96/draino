@@ -210,9 +210,16 @@ func main() {
 			Aggregation: view.Count(),
 			TagKeys:     []tag.Key{kubernetes.TagResult, kubernetes.TagReason, kubernetes.TagNodegroupName, kubernetes.TagNodegroupNamePrefix, kubernetes.TagNodegroupNamespace, kubernetes.TagTeam},
 		}
+		podsRemoved = &view.View{
+			Name:        "pods_removed_total",
+			Measure:     kubernetes.MeasurePodsRemoved,
+			Description: "Number of pods removed from nodes.",
+			Aggregation: view.Count(),
+			TagKeys:     []tag.Key{kubernetes.TagPodRemovalType},
+		}
 	)
 
-	kingpin.FatalIfError(view.Register(nodesCordoned, nodesUncordoned, nodesDrained, nodesDrainScheduled, limitedCordon, skippedCordon, nodesReplacement, nodesPreprovisioningLatency), "cannot create metrics")
+	kingpin.FatalIfError(view.Register(nodesCordoned, nodesUncordoned, nodesDrained, nodesDrainScheduled, limitedCordon, skippedCordon, nodesReplacement, nodesPreprovisioningLatency, podsRemoved), "cannot create metrics")
 
 	promOptions := prometheus.Options{Namespace: kubernetes.Component, Registry: prom.NewRegistry()}
 	kubernetes.InitWorkqueueMetrics(promOptions.Registry)

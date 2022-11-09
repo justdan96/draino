@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
+	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.uber.org/zap"
 	httptrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http"
@@ -767,6 +768,8 @@ func (d *APICordonDrainer) evictWithKubernetesAPI(ctx context.Context, node *cor
 	gracePeriod := d.getGracePeriod(pod)
 	// In some cases we need to delete instead of evict a pod, because we know already that the eviction will fail
 	if d.shouldDeletePod(ctx, pod) {
+		tags, _ := tag.New(ctx, tag.Upsert(TagPodRemovalType, "deletion"))
+		stats.Record(tags, MeasurePodsRemoved.M(1))
 		return d.evictionSequence(ctx, node, pod, abort,
 			func() error {
 				return d.c.CoreV1().Pods(pod.GetNamespace()).Delete(ctx, pod.GetName(), meta.DeleteOptions{GracePeriodSeconds: &gracePeriod})
@@ -778,6 +781,8 @@ func (d *APICordonDrainer) evictWithKubernetesAPI(ctx context.Context, node *cor
 		)
 	}
 
+	tags, _ := tag.New(ctx, tag.Upsert(TagPodRemovalType, "eviction"))
+	stats.Record(tags, MeasurePodsRemoved.M(1))
 	return d.evictionSequence(ctx, node, pod, abort,
 		// eviction function
 		func() error {
@@ -804,10 +809,8 @@ func (d *APICordonDrainer) evictWithKubernetesAPI(ctx context.Context, node *cor
 // If this is the case, the pod cannot be evicted and has to be deleted.
 // It will return false in case of an internal error or if the pod is fairly new (creationTimestamp + warmup < now)
 func (d *APICordonDrainer) shouldDeletePod(ctx context.Context, pod *core.Pod) bool {
-	warmup := pod.ObjectMeta.CreationTimestamp.Add(d.podWarmUpDuration)
-
 	// If the pod is too new, we don't want to perform any action
-	if time.Now().After(warmup) {
+	if time.Since(pod.ObjectMeta.CreationTimestamp.Time) > d.podWarmUpDuration {
 		return false
 	}
 
@@ -829,6 +832,9 @@ func (d *APICordonDrainer) shouldDeletePod(ctx context.Context, pod *core.Pod) b
 func (d *APICordonDrainer) evictWithOperatorAPI(ctx context.Context, url string, node *core.Node, pod *core.Pod, abort <-chan struct{}) error {
 	span, ctx := tracer.StartSpanFromContext(ctx, "evictWithKubernetesAPI")
 	defer span.Finish()
+
+	tags, _ := tag.New(ctx, tag.Upsert(TagPodRemovalType, "eviction++"))
+	stats.Record(tags, MeasurePodsRemoved.M(1))
 
 	conditions := GetConditionsTypes(GetNodeOffendingConditions(node, d.globalConfig.SuppliedConditions))
 	d.l.Info("using custom eviction endpoint", zap.String("pod", pod.Namespace+"/"+pod.Name), zap.String("endpoint", url))
