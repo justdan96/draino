@@ -12,9 +12,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-func TestPDBAnalyser(t *testing.T) {
+func TestPDBAnalyser_BlockingPodsOnNode(t *testing.T) {
 	labelsOne := map[string]string{"matching": "labels", "set": "one"}
 	labelsTwo := map[string]string{"matching": "labels", "set": "two"}
 	tests := []struct {
@@ -41,7 +42,7 @@ func TestPDBAnalyser(t *testing.T) {
 				createNode("my-node"),
 				createPod("running-pod-1", "default", "my-node", true, labelsOne),
 				createPod("failing-pod-1", "default", "my-node", false, labelsOne),
-				createPDB("my-pdb", "default", labelsOne),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne}),
 			},
 		},
 		{
@@ -60,8 +61,8 @@ func TestPDBAnalyser(t *testing.T) {
 				createPod("running-pod-1", "default", "my-node", true, labelsOne),
 				createPod("failing-pod-1", "default", "my-node", false, labelsOne),
 				createPod("failing-pod-2", "default", "my-node", false, labelsTwo),
-				createPDB("my-pdb-1", "default", labelsOne),
-				createPDB("my-pdb-2", "default", labelsTwo),
+				createPDB(createPDBOptions{Name: "my-pdb-1", Ns: "default", Selector: labelsOne}),
+				createPDB(createPDBOptions{Name: "my-pdb-2", Ns: "default", Selector: labelsTwo}),
 			},
 		},
 		{
@@ -80,8 +81,8 @@ func TestPDBAnalyser(t *testing.T) {
 				createPod("running-pod-1", "default", "my-node", true, labelsOne),
 				createPod("failing-pod", "default", "my-node", false, labelsOne),
 				createPod("failing-pod", "kube-system", "my-node", false, labelsTwo),
-				createPDB("my-pdb", "default", labelsOne),
-				createPDB("my-pdb", "kube-system", labelsTwo),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne}),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "kube-system", Selector: labelsTwo}),
 			},
 		},
 		{
@@ -99,8 +100,8 @@ func TestPDBAnalyser(t *testing.T) {
 				createPod("running-pod-1", "default", "my-node", true, labelsOne),
 				createPod("running-pod-2", "default", "my-node", true, labelsOne),
 				createPod("failing-pod", "kube-system", "my-node", false, labelsTwo),
-				createPDB("my-pdb", "default", labelsOne),
-				createPDB("my-pdb", "kube-system", labelsTwo),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne}),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "kube-system", Selector: labelsTwo}),
 			},
 		},
 		{
@@ -116,8 +117,8 @@ func TestPDBAnalyser(t *testing.T) {
 				createPod("running-pod-1", "default", "my-node", true, labelsOne),
 				createPod("running-pod-2", "default", "my-node", true, labelsOne),
 				createPod("running-pod-3", "kube-system", "my-node", true, labelsTwo),
-				createPDB("my-pdb", "default", labelsOne),
-				createPDB("my-pdb", "kube-system", labelsTwo),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne}),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "kube-system", Selector: labelsTwo}),
 			},
 		},
 		{
@@ -134,8 +135,8 @@ func TestPDBAnalyser(t *testing.T) {
 				createPod("running-pod-1", "default", "my-node", true, labelsOne),
 				createPod("running-pod-2", "default", "my-node-2", true, labelsOne),
 				createPod("failing-pod-1", "default", "my-node-2", false, labelsOne),
-				createPDB("my-pdb", "default", labelsOne),
-				createPDB("my-pdb", "kube-system", labelsTwo),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne}),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "kube-system", Selector: labelsTwo}),
 			},
 		},
 	}
@@ -164,6 +165,89 @@ func TestPDBAnalyser(t *testing.T) {
 	}
 }
 
+func TestPDBAnalyser_IsPodTakingAllBudget(t *testing.T) {
+	labelsOne := map[string]string{"mathing": "labels"}
+	tests := []struct {
+		Name           string
+		ExpectedResult bool
+		Pod            *corev1.Pod
+		Objects        []runtime.Object
+	}{
+		{
+			Name:           "Shoulod return true as it's taking the budget",
+			ExpectedResult: true,
+			Pod:            createPod("my-test-pod", "default", "my-node", false, labelsOne),
+			Objects: []runtime.Object{
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne, MaxUnavail: intstrPtr(1), DesiredHealthy: 1, CurrentHealthy: 0}),
+			},
+		},
+		{
+			Name:           "Shoulod return false as it's not the only pod",
+			ExpectedResult: false,
+			Pod:            createPod("my-test-pod", "default", "my-node", false, labelsOne),
+			Objects: []runtime.Object{
+				createPod("my-test-pod-2", "default", "my-node", false, labelsOne),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne, MaxUnavail: intstrPtr(2), DesiredHealthy: 2, CurrentHealthy: 0}),
+			},
+		},
+		{
+			Name:           "Shoulod return false as the pod is ready",
+			ExpectedResult: false,
+			Pod:            createPod("my-test-pod", "default", "my-node", true, labelsOne),
+			Objects: []runtime.Object{
+				createPod("my-test-pod-2", "default", "my-node", false, labelsOne),
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne, MaxUnavail: intstrPtr(2), DesiredHealthy: 2, CurrentHealthy: 1}),
+			},
+		},
+		{
+			Name:           "Shoulod return false if multiple PDBs are matching",
+			ExpectedResult: false,
+			Pod:            createPod("my-test-pod", "default", "my-node", true, labelsOne),
+			Objects: []runtime.Object{
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne, MaxUnavail: intstrPtr(1), DesiredHealthy: 1, CurrentHealthy: 0}),
+				createPDB(createPDBOptions{Name: "my-pdb-2", Ns: "default", Selector: labelsOne, MaxUnavail: intstrPtr(1), DesiredHealthy: 1, CurrentHealthy: 0}),
+			},
+		},
+		{
+			Name:           "Shoulod return false if PDBs is blocked by max unavail",
+			ExpectedResult: false,
+			Pod:            createPod("my-test-pod", "default", "my-node", true, labelsOne),
+			Objects: []runtime.Object{
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne, MaxUnavail: intstrPtr(0), DesiredHealthy: 0, CurrentHealthy: 0}),
+			},
+		},
+		{
+			Name:           "Shoulod return false if PDBs is blocked by max unavail",
+			ExpectedResult: false,
+			Pod:            createPod("my-test-pod", "default", "my-node", true, labelsOne),
+			Objects: []runtime.Object{
+				createPDB(createPDBOptions{Name: "my-pdb", Ns: "default", Selector: labelsOne, MinAvail: intstrPtr(0), DesiredHealthy: 0, CurrentHealthy: 0}),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			objs := append(tt.Objects, tt.Pod)
+
+			ch := make(chan struct{})
+			defer close(ch)
+			indexer, err := index.NewFakeIndexer(ch, objs...)
+			assert.NoError(t, err)
+
+			analyser := NewPDBAnalyser(indexer)
+			isTakingBudget, err := analyser.IsPodTakingAllBudget(context.Background(), tt.Pod)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.ExpectedResult, isTakingBudget)
+		})
+	}
+}
+
+func intstrPtr(val int) *intstr.IntOrString {
+	i := intstr.FromInt(val)
+	return &i
+}
+
 func createNode(name string) *corev1.Node {
 	return &corev1.Node{
 		TypeMeta: metav1.TypeMeta{
@@ -176,20 +260,38 @@ func createNode(name string) *corev1.Node {
 	}
 }
 
-func createPDB(name, ns string, selector labels.Set) *policyv1.PodDisruptionBudget {
+type createPDBOptions struct {
+	Name     string
+	Ns       string
+	Selector labels.Set
+
+	MaxUnavail *intstr.IntOrString
+	MinAvail   *intstr.IntOrString
+
+	DesiredHealthy int32
+	CurrentHealthy int32
+}
+
+func createPDB(opt createPDBOptions) *policyv1.PodDisruptionBudget {
 	return &policyv1.PodDisruptionBudget{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "policy/v1",
 			Kind:       "PodDisruptionBudget",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
+			Name:      opt.Name,
+			Namespace: opt.Ns,
 		},
 		Spec: policyv1.PodDisruptionBudgetSpec{
+			MinAvailable:   opt.MinAvail,
+			MaxUnavailable: opt.MaxUnavail,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: selector,
+				MatchLabels: opt.Selector,
 			},
+		},
+		Status: policyv1.PodDisruptionBudgetStatus{
+			DesiredHealthy: opt.DesiredHealthy,
+			CurrentHealthy: opt.CurrentHealthy,
 		},
 	}
 }
