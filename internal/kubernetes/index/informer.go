@@ -9,6 +9,10 @@ import (
 	clientcr "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	lruPodCapacity = 40000
+)
+
 // Make sure that the Informer is implementing all the required interfaces
 var (
 	_ PDBIndexer = &Indexer{}
@@ -25,7 +29,7 @@ type Indexer struct {
 
 // New creates and initializes a new Indexer object
 func New(client clientcr.Client, cache cachecr.Cache) (*Indexer, error) {
-	informer := &Indexer{client, cache}
+	informer := &Indexer{client: client, cache: cache}
 
 	if err := informer.Init(); err != nil {
 		return nil, err
