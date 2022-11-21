@@ -17,6 +17,7 @@ import (
 
 // PDBBlockByPodIdx is the index key used to index blocking pods for each PDB
 const PDBBlockByPodIdx = "pod:blocking:pdb"
+const PDBAssociatedPodIdx = "pod:associated:pdb"
 
 // PDBIndexer abstracts all the methods related to PDB based indices
 type PDBIndexer interface {
@@ -36,40 +37,13 @@ func (i *Indexer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) (
 
 func (i *Indexer) GetPDBsForPods(ctx context.Context, pods []*corev1.Pod) (map[string][]*policyv1.PodDisruptionBudget, error) {
 	result := map[string][]*policyv1.PodDisruptionBudget{}
-
-	// let's group pods per namespace
-	// to perform analysis per namespace
-	perNamespace := map[string][]*corev1.Pod{}
 	for _, p := range pods {
-		perNs := perNamespace[p.Namespace]
-		perNamespace[p.Namespace] = append(perNs, p)
-	}
-
-	// work for each namespace
-	for ns, podsInNs := range perNamespace {
-		var pdbList policyv1.PodDisruptionBudgetList
-		if err := i.client.List(ctx, &pdbList, &clientcr.ListOptions{Namespace: ns}); err != nil {
-			i.logger.Error(err, "failed to list pdb", "namespace", ns)
-			continue
+		key := GeneratePodIndexKey(p.Name, p.Namespace)
+		pdbs, err := GetFromIndex[policyv1.PodDisruptionBudget](ctx, i, PDBAssociatedPodIdx, key)
+		if err != nil {
+			return nil, err
 		}
-
-		for j := range pdbList.Items {
-			pdb := &pdbList.Items[j]
-			selector, err := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
-			if err != nil {
-				i.logger.Error(fmt.Errorf("failed to build selector for pdb: %v", err), "namespace", pdb.Namespace, "name", pdb.Name)
-				continue
-			}
-			for _, pod := range podsInNs {
-				ls := labels.Set(pod.GetLabels())
-				if !selector.Matches(ls) {
-					continue
-				}
-				podKey := GeneratePodIndexKey(pod.Name, pod.Namespace)
-				otherPDBs := result[podKey]
-				result[podKey] = append(otherPDBs, pdb)
-			}
-		}
+		result[key] = pdbs
 	}
 	return result, nil
 }
@@ -78,9 +52,25 @@ func initPDBIndexer(client clientcr.Client, cache cachecr.Cache) error {
 	if err != nil {
 		return err
 	}
+
+	informer.AddIndexers(map[string]cachek.IndexFunc{
+		PDBAssociatedPodIdx: func(obj interface{}) ([]string, error) { return indexPDBAssociatedWithPod(client, obj) },
+	})
+	if err != nil {
+		return err
+	}
+
 	return informer.AddIndexers(map[string]cachek.IndexFunc{
 		PDBBlockByPodIdx: func(obj interface{}) ([]string, error) { return indexPDBBlockingPod(client, obj) },
 	})
+}
+
+func indexPDBAssociatedWithPod(client clientcr.Client, o interface{}) ([]string, error) {
+	pdb, ok := o.(*policyv1.PodDisruptionBudget)
+	if !ok {
+		return nil, errors.New("cannot parse pdb object in indexer")
+	}
+	return getAssociatedPodsForPDB(client, pdb, false)
 }
 
 func indexPDBBlockingPod(client clientcr.Client, o interface{}) ([]string, error) {
@@ -88,10 +78,10 @@ func indexPDBBlockingPod(client clientcr.Client, o interface{}) ([]string, error
 	if !ok {
 		return nil, errors.New("cannot parse pdb object in indexer")
 	}
-	return getBlockingPodsForPDB(client, pdb)
+	return getAssociatedPodsForPDB(client, pdb, true)
 }
 
-func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBudget) ([]string, error) {
+func getAssociatedPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBudget, onlyNotReadyPods bool) ([]string, error) {
 	var pods corev1.PodList
 	if err := client.List(context.Background(), &pods, &clientcr.ListOptions{Namespace: pdb.GetNamespace()}); err != nil {
 		return []string{}, err
@@ -102,20 +92,20 @@ func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBu
 		return []string{}, err
 	}
 
-	blockingPods := make([]string, 0)
+	associatedPods := make([]string, 0)
 	for _, pod := range pods.Items {
-		if utils.IsPodReady(&pod) {
+		if onlyNotReadyPods && utils.IsPodReady(&pod) {
 			continue
 		}
-
 		ls := labels.Set(pod.GetLabels())
 		if !selector.Matches(ls) {
 			continue
 		}
 
-		blockingPods = append(blockingPods, GeneratePodIndexKey(pod.GetName(), pod.GetNamespace()))
+		associatedPods = append(associatedPods, GeneratePodIndexKey(pod.GetName(), pod.GetNamespace()))
 	}
-	return blockingPods, nil
+	return associatedPods, nil
+
 }
 
 func GeneratePodIndexKey(podName, ns string) string {

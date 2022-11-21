@@ -246,6 +246,8 @@ func (d *drainBufferChecker) DrainBufferAcceptsDrain(ctx context.Context, node *
 		return false
 	}
 
+	var latestRecover time.Time
+	canDrain := true
 	for podKey, pdbs := range pdbsForPods {
 		drainBuffer := drainBuffers[podKey]
 		disruptionAllowed, stableSince, pdb := getLatestDisruption(d.logger, pdbs)
@@ -265,20 +267,22 @@ func (d *drainBufferChecker) DrainBufferAcceptsDrain(ctx context.Context, node *
 			return false
 		}
 
-		if now.Sub(stableSince) < drainBuffer.length {
+		recoverAt := stableSince.Add(drainBuffer.length)
+		if recoverAt.After(now) && recoverAt.After(latestRecover) {
+			canDrain = false
 			loggerInLoop.Info("drain buffer blocking", "drain-buffer", drainBuffer)
-
+			latestRecover = recoverAt
 			if d.cacheRecoveryTime != nil {
 				// add an entry into the cache to avoid recomputing this state before the drain buffer is respected.
 				d.cacheRecoveryTime.Add(cacheKey, recoveryEstimationDate{
-					estimatedRecovery: stableSince.Add(drainBuffer.length),
+					estimatedRecovery: recoverAt,
 					ttl:               now.Add(*d.drainBufferConfig.EstimatedRecoveryRecordTTL),
 				})
 			}
-			return false
 		}
 	}
-	return true
+
+	return canDrain
 }
 func buildNodePodsCacheKey(node *v1.Node, pods []*v1.Pod, drainBuffers map[string]drainBufferInfo) (string, error) {
 	podsUIDs := make([]string, len(pods))

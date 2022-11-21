@@ -247,7 +247,7 @@ func Test_drainBufferChecker_DrainBufferAcceptsDrain(t *testing.T) {
 							{
 								Type:               policyv1.DisruptionAllowedCondition,
 								Status:             meta.ConditionTrue,
-								LastTransitionTime: meta.Time{now.Add(-drainBufferOneHour).Add(time.Minute)}, // missing one minute to allow
+								LastTransitionTime: meta.Time{Time: now.Add(-drainBufferOneHour).Add(time.Minute)}, // missing one minute to allow
 							},
 						},
 					},
@@ -286,7 +286,7 @@ func Test_drainBufferChecker_DrainBufferAcceptsDrain(t *testing.T) {
 							{
 								Type:               policyv1.DisruptionAllowedCondition,
 								Status:             meta.ConditionTrue,
-								LastTransitionTime: meta.Time{now.Add(-drainBufferOneHour).Add(-time.Minute)}, // one extra minute: allowed
+								LastTransitionTime: meta.Time{Time: now.Add(-drainBufferOneHour).Add(-time.Minute)}, // one extra minute: allowed
 							},
 						},
 					},
@@ -303,7 +303,7 @@ func Test_drainBufferChecker_DrainBufferAcceptsDrain(t *testing.T) {
 							{
 								Type:               policyv1.DisruptionAllowedCondition,
 								Status:             meta.ConditionTrue,
-								LastTransitionTime: meta.Time{now.Add(-drainBufferOneHour).Add(+time.Minute)}, // unrelated pod would block another node
+								LastTransitionTime: meta.Time{Time: now.Add(-drainBufferOneHour).Add(+time.Minute)}, // unrelated pod would block another node
 							},
 						},
 					},
@@ -347,7 +347,7 @@ func Test_drainBufferChecker_DrainBufferAcceptsDrain(t *testing.T) {
 							{
 								Type:               policyv1.DisruptionAllowedCondition,
 								Status:             meta.ConditionTrue,
-								LastTransitionTime: meta.Time{now.Add(-drainBufferOneHour).Add(-time.Minute)}, // one extra minute: allowed
+								LastTransitionTime: meta.Time{Time: now.Add(-drainBufferOneHour).Add(-time.Minute)}, // one extra minute: allowed
 							},
 						},
 					},
@@ -364,7 +364,7 @@ func Test_drainBufferChecker_DrainBufferAcceptsDrain(t *testing.T) {
 							{
 								Type:               policyv1.DisruptionAllowedCondition,
 								Status:             meta.ConditionTrue,
-								LastTransitionTime: meta.Time{now.Add(-drainBufferOneHour).Add(+time.Minute)}, // unrelated pod would block another node
+								LastTransitionTime: meta.Time{Time: now.Add(-drainBufferOneHour).Add(+time.Minute)}, // unrelated pod would block another node
 							},
 						},
 					},
