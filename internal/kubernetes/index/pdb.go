@@ -49,33 +49,19 @@ func (i *Indexer) GetPDBsForPods(ctx context.Context, pods []*corev1.Pod) (map[s
 	for ns, podsInNs := range perNamespace {
 		var pdbList policyv1.PodDisruptionBudgetList
 		if err := i.client.List(ctx, &pdbList, &clientcr.ListOptions{Namespace: ns}); err != nil {
-			// TODO log ? missing logger in indexer
+			i.logger.Error(err, "failed to list pdb", "namespace", ns)
 			continue
 		}
-		// local cache for pdb selector (building selector can be expensive)
-		pdbSelectors := map[*policyv1.PodDisruptionBudget]labels.Selector{}
-		getSelector := func(pdb *policyv1.PodDisruptionBudget) (labels.Selector, bool) {
-			if s, ok := pdbSelectors[pdb]; ok {
-				return s, true
-			}
+
+		for j := range pdbList.Items {
+			pdb := &pdbList.Items[j]
 			selector, err := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
 			if err != nil {
-				return nil, false
+				i.logger.Error(fmt.Errorf("failed to build selector for pdb: %v", err), "namespace", pdb.Namespace, "name", pdb.Name)
+				continue
 			}
-			pdbSelectors[pdb] = selector
-			return selector, true
-		}
-
-		for _, pod := range podsInNs {
-			ls := labels.Set(pod.GetLabels())
-			for i := range pdbList.Items {
-				pdb := &pdbList.Items[i]
-				selector, ok := getSelector(pdb)
-				if !ok {
-					// TODO log ? missing logger in indexer
-					continue
-				}
-
+			for _, pod := range podsInNs {
+				ls := labels.Set(pod.GetLabels())
 				if !selector.Matches(ls) {
 					continue
 				}
@@ -134,5 +120,5 @@ func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBu
 
 func GeneratePodIndexKey(podName, ns string) string {
 	// This is needed because PDBs are namespace scoped, so we might have name collisions
-	return fmt.Sprintf("%s/%s", podName, ns) // TODO check with Daniel: why in this order ?
+	return fmt.Sprintf("%s/%s", ns, podName)
 }

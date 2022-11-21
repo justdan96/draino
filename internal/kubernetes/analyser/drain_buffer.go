@@ -2,6 +2,7 @@ package analyser
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
@@ -101,13 +102,13 @@ func NewDrainBufferChecker(ctx context.Context, logger logr.Logger, kclient clie
 		cacheRecoveryTime: cache.NewThreadSafeStore(nil, nil),
 	}
 
-	go d.cacheCleanup(ctx)
+	go d.runCacheCleanup(ctx)
 
 	return d
 }
 
-// cacheCleanup, delete all the record with an expired TTL
-func (d *drainBufferChecker) cacheCleanup(ctx context.Context) {
+// runCacheCleanup, delete all the record with an expired TTL
+func (d *drainBufferChecker) runCacheCleanup(ctx context.Context) {
 	logger := d.logger.WithName("drain-buffer-cache")
 	logger.Info("starting cache cleanup")
 	defer logger.Info("stopping cache cleanup")
@@ -156,6 +157,7 @@ func (d *drainBufferChecker) getDrainBuffersConfigurations(ctx context.Context, 
 	pods, err := d.indexer.GetPodsByNode(ctx, node.Name)
 	if err != nil {
 		d.logger.Error(err, "Failed to get pods for node", "node", node.Name)
+		return buffers
 	}
 
 	for _, p := range pods {
@@ -172,7 +174,6 @@ func (d *drainBufferChecker) getDrainBuffersConfigurations(ctx context.Context, 
 				drainBufferPod.length = ctrlDrainBufferConfig
 				drainBufferPod.sourceKind = "kind/controller"
 				drainBufferPod.sourceName = p.Namespace + "/" + ctrl.GetName()
-				buffers[index.GeneratePodIndexKey(p.Name, p.Namespace)] = drainBufferPod
 			}
 		}
 		buffers[index.GeneratePodIndexKey(p.Name, p.Namespace)] = drainBufferPod
@@ -189,11 +190,11 @@ func (d *drainBufferChecker) getNodeDrainBufferConfiguration(ctx context.Context
 }
 
 func (d *drainBufferChecker) getPodDrainBufferConfiguration(ctx context.Context, pod *v1.Pod) (time.Duration, bool) {
-	nodeDrainBuffer, found, err := d.getDrainBufferConfigurationFromAnnotation(pod)
+	podDrainBuffer, found, err := d.getDrainBufferConfigurationFromAnnotation(pod)
 	if err != nil {
 		d.eventRecorder.PodEventf(ctx, pod, v1.EventTypeWarning, DrainBufferMisconfigured, "the value for "+kubernetes.CustomDrainBufferAnnotation+" cannot be parsed as a duration: %#v", err)
 	}
-	return nodeDrainBuffer, found
+	return podDrainBuffer, found
 }
 
 func (d *drainBufferChecker) getDrainBufferConfigurationFromAnnotation(obj metav1.Object) (time.Duration, bool, error) {
@@ -217,15 +218,21 @@ func (d *drainBufferChecker) DrainBufferAcceptsDrain(ctx context.Context, node *
 	pods, err := d.indexer.GetPodsByNode(ctx, node.Name)
 	if err != nil {
 		d.logger.Error(err, "Failed to get pods for node", "node", node.Name)
+		return false
 	}
 
-	cacheKey := buildNodePodsCacheKey(node, pods, drainBuffers)
+	cacheKey, err := buildNodePodsCacheKey(node, pods, drainBuffers)
+	if err != nil {
+		d.logger.Error(err, "Failed to build cache key", "node", node.Name)
+		return false
+	}
+
 	if d.cacheRecoveryTime != nil {
 		// check if we have cached result from previous analysis
 		objInCache, found := d.cacheRecoveryTime.Get(cacheKey)
 		if found {
 			recovery := objInCache.(recoveryEstimationDate)
-			if recovery.estimatedRecovery.After(time.Now()) {
+			if recovery.estimatedRecovery.After(now) {
 				// TODO add metrics to check how many time the cache was used
 				return false
 			}
@@ -242,30 +249,24 @@ func (d *drainBufferChecker) DrainBufferAcceptsDrain(ctx context.Context, node *
 	for podKey, pdbs := range pdbsForPods {
 		drainBuffer := drainBuffers[podKey]
 		disruptionAllowed, stableSince, pdb := getLatestDisruption(d.logger, pdbs)
+		pdbName := ""
+		if pdb != nil {
+			pdbName = pdb.Name
+		}
+		loggerInLoop := d.logger.WithValues("node", node.Name, "pod", podKey, "pdb", pdbName)
+
 		if !disruptionAllowed {
-			pdbName := ""
-			if pdb != nil {
-				pdbName = pdb.Name
-			}
-			d.logger.Info("pdb blocking", "node", node.Name, "pod", podKey, "pdb", pdbName)
+			loggerInLoop.Info("pdb blocking")
 			return false
 		}
 
 		if pdb == nil || stableSince.IsZero() {
-			pdbName := ""
-			if pdb != nil {
-				pdbName = pdb.Name
-			}
-			d.logger.Info("pdb blocking, no condition defined or no pdb", "node", node.Name, "pod", podKey, "pdb", pdbName)
+			loggerInLoop.Info("pdb blocking, no condition defined or no pdb")
 			return false
 		}
 
 		if now.Sub(stableSince) < drainBuffer.length {
-			pdbName := ""
-			if pdb != nil {
-				pdbName = pdb.Name
-			}
-			d.logger.Info("drain buffer blocking", "node", node.Name, "pod", podKey, "pdb", pdbName, "drain-buffer", drainBuffer)
+			loggerInLoop.Info("drain buffer blocking", "drain-buffer", drainBuffer)
 
 			if d.cacheRecoveryTime != nil {
 				// add an entry into the cache to avoid recomputing this state before the drain buffer is respected.
@@ -279,17 +280,20 @@ func (d *drainBufferChecker) DrainBufferAcceptsDrain(ctx context.Context, node *
 	}
 	return true
 }
-func buildNodePodsCacheKey(node *v1.Node, pods []*v1.Pod, drainBuffers map[string]drainBufferInfo) string {
+func buildNodePodsCacheKey(node *v1.Node, pods []*v1.Pod, drainBuffers map[string]drainBufferInfo) (string, error) {
 	podsUIDs := make([]string, len(pods))
 	for i, p := range pods {
 		podkey := index.GeneratePodIndexKey(p.Name, p.Namespace)
-		dbuffer := drainBuffers[podkey]
+		dbuffer, found := drainBuffers[podkey]
+		if !found {
+			return "", fmt.Errorf("missing drain-buffer configuration for pod %s", index.GeneratePodIndexKey(p.Name, p.Namespace))
+		}
 		// We are using drain buffer because if the configuration change we want to use/introduce a different key.
 		// The cached result may change due to the drainBuffer configuration change
 		podsUIDs[i] = string(p.UID) + dbuffer.length.String()
 	}
 	sort.Strings(podsUIDs) // stable order
-	return string(node.UID) + "#" + strings.Join(podsUIDs, "#")
+	return string(node.UID) + "#" + strings.Join(podsUIDs, "#"), nil
 }
 
 // getLatestDisruption found for how long the PDB has been stable if the disruption is allowed

@@ -30,7 +30,7 @@ func Test_getLatestDisruption(t *testing.T) {
 				{
 					Type:               policyv1.DisruptionAllowedCondition,
 					Status:             meta.ConditionFalse,
-					LastTransitionTime: meta.Time{date14},
+					LastTransitionTime: meta.Time{Time: date14},
 				},
 			},
 		},
@@ -42,7 +42,7 @@ func Test_getLatestDisruption(t *testing.T) {
 				{
 					Type:               policyv1.DisruptionAllowedCondition,
 					Status:             meta.ConditionTrue,
-					LastTransitionTime: meta.Time{date15},
+					LastTransitionTime: meta.Time{Time: date15},
 				},
 			},
 		},
@@ -54,19 +54,19 @@ func Test_getLatestDisruption(t *testing.T) {
 				{
 					Type:               policyv1.DisruptionAllowedCondition,
 					Status:             meta.ConditionTrue,
-					LastTransitionTime: meta.Time{date16},
+					LastTransitionTime: meta.Time{Time: date16},
 				},
 			},
 		},
 	}
 	pdbNoCondition := &policyv1.PodDisruptionBudget{
-		ObjectMeta: meta.ObjectMeta{Namespace: "ns", Name: "pdbNoConditions", CreationTimestamp: meta.Time{date16}},
+		ObjectMeta: meta.ObjectMeta{Namespace: "ns", Name: "pdbNoConditions", CreationTimestamp: meta.Time{Time: date16}},
 		Status: policyv1.PodDisruptionBudgetStatus{
 			Conditions: []meta.Condition{},
 		},
 	}
 	pdbNoTransitionTime := &policyv1.PodDisruptionBudget{
-		ObjectMeta: meta.ObjectMeta{Namespace: "ns", Name: "pdbNoTransitionTime", CreationTimestamp: meta.Time{date16}},
+		ObjectMeta: meta.ObjectMeta{Namespace: "ns", Name: "pdbNoTransitionTime", CreationTimestamp: meta.Time{Time: date16}},
 		Status: policyv1.PodDisruptionBudgetStatus{
 			Conditions: []meta.Condition{
 				{
@@ -78,7 +78,7 @@ func Test_getLatestDisruption(t *testing.T) {
 		},
 	}
 	pdbNoTransitionTimeButBlocked := &policyv1.PodDisruptionBudget{
-		ObjectMeta: meta.ObjectMeta{Namespace: "ns", Name: "pdbNoTransitionTime", CreationTimestamp: meta.Time{date16}},
+		ObjectMeta: meta.ObjectMeta{Namespace: "ns", Name: "pdbNoTransitionTime", CreationTimestamp: meta.Time{Time: date16}},
 		Status: policyv1.PodDisruptionBudgetStatus{
 			Conditions: []meta.Condition{
 				{
@@ -391,7 +391,7 @@ func Test_drainBufferChecker_DrainBufferAcceptsDrain(t *testing.T) {
 			er := kubernetes.NewEventRecorder(record.NewFakeRecorder(1000))
 			store, closeFunc := kubernetes.RunStoreForTest(context.Background(), fakeKubeClient)
 			defer closeFunc()
-			fakeIndexer, err := index.NewFakeIndexer(ch, tt.objects)
+			fakeIndexer, err := index.NewFakeIndexer(ch, tt.objects, testLogger)
 			if err != nil {
 				t.Fatalf("can't create fakeIndexer: %#v", err)
 			}
