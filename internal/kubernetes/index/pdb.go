@@ -17,7 +17,6 @@ import (
 
 // PDBBlockByPodIdx is the index key used to index blocking pods for each PDB
 const PDBBlockByPodIdx = "pod:blocking:pdb"
-const PDBAssociatedPodIdx = "pod:associated:pdb"
 
 // PDBIndexer abstracts all the methods related to PDB based indices
 type PDBIndexer interface {
@@ -36,14 +35,51 @@ func (i *Indexer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) (
 }
 
 func (i *Indexer) GetPDBsForPods(ctx context.Context, pods []*corev1.Pod) (map[string][]*policyv1.PodDisruptionBudget, error) {
+
+	// Design decision:
+	// this implementation does the label selection at each call so the response time will be
+	// a bit bigger than if we were using an index. But the index would be super costly in terms of CPU
+	// since each time the PDB (or status) is updated (so each time a pod change status, or labels, or new pods, or deleted pod)
+	// we would redo the labelSelection to build the index.
+	// The gain is response time is not important, so we prefer to avoid the cost of the index.
+	// This method should be called only when we decide for a node drain (or simulation), that should in the end cost
+	// less CPU (by far) than the index.
+
 	result := map[string][]*policyv1.PodDisruptionBudget{}
+
+	// let's group pods per namespace
+	// to perform analysis per namespace
+	perNamespace := map[string][]*corev1.Pod{}
 	for _, p := range pods {
-		key := GeneratePodIndexKey(p.Name, p.Namespace)
-		pdbs, err := GetFromIndex[policyv1.PodDisruptionBudget](ctx, i, PDBAssociatedPodIdx, key)
-		if err != nil {
-			return nil, err
+		perNs := perNamespace[p.Namespace]
+		perNamespace[p.Namespace] = append(perNs, p)
+	}
+
+	// work for each namespace
+	for ns, podsInNs := range perNamespace {
+		var pdbList policyv1.PodDisruptionBudgetList
+		if err := i.client.List(ctx, &pdbList, &clientcr.ListOptions{Namespace: ns}); err != nil {
+			i.logger.Error(err, "failed to list pdb", "namespace", ns)
+			continue
 		}
-		result[key] = pdbs
+
+		for j := range pdbList.Items {
+			pdb := &pdbList.Items[j]
+			selector, err := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
+			if err != nil {
+				i.logger.Error(fmt.Errorf("failed to build selector for pdb: %v", err), "namespace", pdb.Namespace, "name", pdb.Name)
+				continue
+			}
+			for _, pod := range podsInNs {
+				ls := labels.Set(pod.GetLabels())
+				if !selector.Matches(ls) {
+					continue
+				}
+				podKey := GeneratePodIndexKey(pod.Name, pod.Namespace)
+				otherPDBs := result[podKey]
+				result[podKey] = append(otherPDBs, pdb)
+			}
+		}
 	}
 	return result, nil
 }
@@ -53,24 +89,9 @@ func initPDBIndexer(client clientcr.Client, cache cachecr.Cache) error {
 		return err
 	}
 
-	informer.AddIndexers(map[string]cachek.IndexFunc{
-		PDBAssociatedPodIdx: func(obj interface{}) ([]string, error) { return indexPDBAssociatedWithPod(client, obj) },
-	})
-	if err != nil {
-		return err
-	}
-
 	return informer.AddIndexers(map[string]cachek.IndexFunc{
 		PDBBlockByPodIdx: func(obj interface{}) ([]string, error) { return indexPDBBlockingPod(client, obj) },
 	})
-}
-
-func indexPDBAssociatedWithPod(client clientcr.Client, o interface{}) ([]string, error) {
-	pdb, ok := o.(*policyv1.PodDisruptionBudget)
-	if !ok {
-		return nil, errors.New("cannot parse pdb object in indexer")
-	}
-	return getAssociatedPodsForPDB(client, pdb, false)
 }
 
 func indexPDBBlockingPod(client clientcr.Client, o interface{}) ([]string, error) {
