@@ -29,10 +29,10 @@ type ttlEntry[T any] struct {
 	entry T
 }
 
-func NewCache[T any](ttl time.Duration) TTLCache[T] {
+func NewCache[T any](ttl, cleanup time.Duration) TTLCache[T] {
 	return &ttlCacheImpl[T]{
 		ttl:             ttl,
-		cleanupDuration: time.Minute,
+		cleanupDuration: cleanup,
 	}
 }
 
@@ -77,6 +77,12 @@ func (c *ttlCacheImpl[T]) Get(key string) (T, bool) {
 
 	parsed, ok := entry.(ttlEntry[T])
 	if !ok {
+		var empty T
+		return empty, false
+	}
+
+	// Make sure that the item did not reach it's TTL
+	if parsed.until.Before(time.Now()) {
 		var empty T
 		return empty, false
 	}

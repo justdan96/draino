@@ -568,6 +568,6 @@ func controllerRuntimeBootstrap() {
 
 	// just to consume analyzer
 	_ = analyser.NewPDBAnalyser(indexer)
-	_ = drain.NewDrainSimulator(mgr.GetClient(), indexer, nil)
+	_ = drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, nil)
 	logger.Info("ControllerRuntime bootstrap")
 }
