@@ -23,11 +23,18 @@ type PDBIndexer interface {
 	// GetPDBsBlockedByPod will return a list of PDBs that are blocked by the given pod.
 	// This means that the disruption budget are used by the Pod.
 	GetPDBsBlockedByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error)
+	// Temporal until PR was merged
+	GetPDBsForPods(ctx context.Context, pods []*corev1.Pod) (map[string][]*policyv1.PodDisruptionBudget, error)
 }
 
 func (i *Indexer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) ([]*policyv1.PodDisruptionBudget, error) {
-	key := generatePodIndexKey(podName, ns)
+	key := GeneratePodIndexKey(podName, ns)
 	return GetFromIndex[policyv1.PodDisruptionBudget](ctx, i, PDBBlockByPodIdx, key)
+}
+
+// TODO this is just a mock function. It will be replaced by other PR later on
+func (i *Indexer) GetPDBsForPods(ctx context.Context, pods []*corev1.Pod) (map[string][]*policyv1.PodDisruptionBudget, error) {
+	return map[string][]*policyv1.PodDisruptionBudget{}, nil
 }
 
 func initPDBIndexer(client clientcr.Client, cache cachecr.Cache) error {
@@ -70,13 +77,13 @@ func getBlockingPodsForPDB(client clientcr.Client, pdb *policyv1.PodDisruptionBu
 			continue
 		}
 
-		blockingPods = append(blockingPods, generatePodIndexKey(pod.GetName(), pod.GetNamespace()))
+		blockingPods = append(blockingPods, GeneratePodIndexKey(pod.GetName(), pod.GetNamespace()))
 	}
 
 	return blockingPods, nil
 }
 
-func generatePodIndexKey(podName, ns string) string {
+func GeneratePodIndexKey(podName, ns string) string {
 	// This is needed because PDBs are namespace scoped, so we might have name collisions
 	return fmt.Sprintf("%s/%s", podName, ns)
 }
