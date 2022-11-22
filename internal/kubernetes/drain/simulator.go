@@ -18,7 +18,11 @@ import (
 )
 
 type DrainSimulator interface {
+	// SimulateDrain will simulate a drain for the given node.
+	// This means that it will perform an eviction simulation of all pods that are accepted by the internal filters.
 	SimulateDrain(context.Context, *corev1.Node) (bool, error)
+	// SimulatePodDrain will simulate a drain of the given pod.
+	// Before calling the API server it will make sure that some of the obvious problems are not given.
 	SimulatePodDrain(context.Context, *corev1.Pod) (bool, error)
 }
 
@@ -27,6 +31,7 @@ type drainSimulatorImpl struct {
 	pdbIndexer index.PDBIndexer
 	podIndexer index.PodIndexer
 	client     client.Client
+	podFilter  kubernetes.PodFilterFunc
 
 	nodeResultCache utils.TTLCache[simulationResult]
 	podResultCache  utils.TTLCache[simulationResult]
@@ -39,16 +44,23 @@ type simulationResult struct {
 
 var _ DrainSimulator = &drainSimulatorImpl{}
 
-func NewDrainSimulator(ctx context.Context, client client.Client, indexer *index.Indexer, store kubernetes.RuntimeObjectStore) DrainSimulator {
+func NewDrainSimulator(
+	ctx context.Context,
+	client client.Client,
+	indexer *index.Indexer,
+	store kubernetes.RuntimeObjectStore,
+	podFilter kubernetes.PodFilterFunc,
+) DrainSimulator {
 	simulator := &drainSimulatorImpl{
 		store:      store,
 		podIndexer: indexer,
 		pdbIndexer: indexer,
 		client:     client,
+		podFilter:  podFilter,
 
 		// TODO i'm not very sure if both of the caches make sense, as they will cache the same result
-		nodeResultCache: utils.NewCache[simulationResult](3*time.Minute, 10*time.Second),
-		podResultCache:  utils.NewCache[simulationResult](3*time.Minute, 10*time.Second),
+		nodeResultCache: utils.NewTTLCache[simulationResult](3*time.Minute, 10*time.Second),
+		podResultCache:  utils.NewTTLCache[simulationResult](3*time.Minute, 10*time.Second),
 	}
 
 	go simulator.nodeResultCache.StartCleanupLoop(ctx)
@@ -70,6 +82,12 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 	nodeDrainResult := true
 	reasons := []string{}
 	for _, pod := range pods {
+		// TODO handle error
+		pass, _, _ := sim.podFilter(*pod)
+		if !pass {
+			continue
+		}
+
 		if result, exist := sim.podResultCache.Get(getPodCacheIdx(pod)); exist {
 			if !result.result {
 				reasons = append(reasons, result.reason)
@@ -96,6 +114,8 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 }
 
 func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1.Pod) (bool, error) {
+	// TODO should we check if the given pod will be accepted by the filter?
+
 	// If eviction++ is enabled for the pod or controller, we don't want to perform any actions as there might not be any dry-run mode.
 	// We'll just assume a successful simulation as we can neither know that it will succeed nor that it'll fail, so we have to try it.
 	_, ok := kubernetes.GetAnnotationFromPodOrController(kubernetes.EvictionAPIURLAnnotationKey, pod, sim.store)

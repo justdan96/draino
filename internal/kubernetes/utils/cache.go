@@ -11,9 +11,14 @@ import (
 var _ TTLCache[string] = &ttlCacheImpl[string]{}
 
 type TTLCache[T any] interface {
+	// StartCleanupLoop will run a continuous loop that is executing a cleanup every now and then
 	StartCleanupLoop(ctx context.Context)
+	// Cleanup will cleanup the internal cache and remove outdated elements
 	Cleanup()
+	// Add adds the given element to the cache
 	Add(string, T)
+	// Get returns the element of the given key
+	// The boolean will be false if there is no element with this key in the cache
 	Get(string) (T, bool)
 }
 
@@ -24,15 +29,18 @@ type ttlCacheImpl[T any] struct {
 	cache cache.ThreadSafeStore
 }
 
+// ttlEntry is used to store the given element in the thread safe cache
 type ttlEntry[T any] struct {
 	until time.Time
 	entry T
 }
 
-func NewCache[T any](ttl, cleanup time.Duration) TTLCache[T] {
+// NewTTLCache will create an instance of the TTLCache
+func NewTTLCache[T any](ttl, cleanup time.Duration) TTLCache[T] {
 	return &ttlCacheImpl[T]{
 		ttl:             ttl,
 		cleanupDuration: cleanup,
+		cache:           cache.NewThreadSafeStore(nil, nil),
 	}
 }
 
