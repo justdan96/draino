@@ -824,7 +824,6 @@ func (d *APICordonDrainer) evictWithOperatorAPI(ctx context.Context, url string,
 					},
 				}
 			} else {
-				// Creates a round-tripper using the Token Getter.
 				roundTripper = http.DefaultTransport
 			}
 
