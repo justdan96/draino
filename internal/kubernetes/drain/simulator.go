@@ -70,7 +70,7 @@ func NewDrainSimulator(
 }
 
 func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.Node) (bool, error) {
-	if result, exist := sim.nodeResultCache.Get(node.GetName()); exist {
+	if result, exist := sim.nodeResultCache.Get(string(node.GetUID())); exist {
 		return result.result, errors.New(result.reason)
 	}
 
@@ -87,7 +87,7 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 			continue
 		}
 
-		if result, exist := sim.podResultCache.Get(getPodCacheIdx(pod)); exist {
+		if result, exist := sim.podResultCache.Get(string(pod.GetUID())); exist {
 			if !result.result {
 				reasons = append(reasons, result.reason)
 			}
@@ -98,13 +98,13 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 			// TODO add suceeded/failed pod drain simulation count metric
 			reason := fmt.Sprintf("Cannot drain pod '%s', because: %v", pod.GetName(), err)
 			reasons = append(reasons, reason)
-			sim.podResultCache.Add(getPodCacheIdx(pod), simulationResult{result: res, reason: reason})
+			sim.podResultCache.Add(string(pod.GetUID()), simulationResult{result: res, reason: reason})
 		}
 	}
 
 	resonString := strings.Join(reasons, "; ")
 	sim.nodeResultCache.Add(
-		node.GetName(),
+		string(node.GetUID()),
 		simulationResult{result: len(reasons) == 0, reason: resonString},
 	)
 
@@ -168,8 +168,4 @@ func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *cor
 	})
 
 	return err == nil, err
-}
-
-func getPodCacheIdx(pod *corev1.Pod) string {
-	return fmt.Sprintf("%s/%s", pod.GetNamespace(), pod.GetName())
 }
