@@ -8,7 +8,6 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 var _ Interface = &PDBAnalyser{}
@@ -54,10 +53,6 @@ func (a *PDBAnalyser) BlockingPodsOnNode(ctx context.Context, nodeName string) (
 }
 
 func IsPDBBlocked(ctx context.Context, pod *corev1.Pod, pdb *policyv1.PodDisruptionBudget) bool {
-	if isPDBLocked(pdb) {
-		return true
-	}
-
 	// If the pod is not ready it's already taking budget from the PDB
 	// If the remaining budget is still positive or zero, it's fine
 	var podTakingBudget int32 = 0
@@ -67,30 +62,8 @@ func IsPDBBlocked(ctx context.Context, pod *corev1.Pod, pdb *policyv1.PodDisrupt
 
 	// CurrentHealthy - DesiredHealthy will give the currently available budget.
 	// If the given pod is not ready, we know that it's taking some of the budget already, so we are increasing the number in that case.
+	// In case of lockness, where MaxUnavailable is set to zero, DesiredHealthy will always be equal to the amount of pods covered.
 	remainingBudget := ((pdb.Status.CurrentHealthy + podTakingBudget) - pdb.Status.DesiredHealthy)
 
 	return remainingBudget <= 0
-}
-
-func isPDBLocked(pdb *policyv1.PodDisruptionBudget) bool {
-	maxUnavailable := pdb.Spec.MaxUnavailable
-	if maxUnavailable != nil {
-		if maxUnavailable.Type == intstr.Int && maxUnavailable.IntVal == 0 {
-			return true
-		}
-		if maxUnavailable.Type == intstr.String && maxUnavailable.StrVal == "0%" {
-			return true
-		}
-	}
-
-	minAvailable := pdb.Spec.MinAvailable
-	if minAvailable != nil {
-		// TODO think about the intval case
-		// maybe something like minAvail > podCount
-		if minAvailable.Type == intstr.String && minAvailable.StrVal == "100%" {
-			return true
-		}
-	}
-
-	return false
 }

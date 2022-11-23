@@ -80,9 +80,9 @@ func TestSimulator_SimulateDrain(t *testing.T) {
 			PodFilter:   noopPodFilter,
 			Node:        corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "foo-node"}},
 			Objects: []runtime.Object{
-				createPod(createPodOpts{Name: "foo-pod1", Labels: testLabels, NodeName: "foo-node", IsNotReady: true}),
-				createPod(createPodOpts{Name: "foo-pod2", Labels: testLabels, NodeName: "foo-node", IsNotReady: true}),
-				createPDB(createPDBOpts{Name: "foo-pdb", Labels: testLabels, Des: 0, Healthy: 2}),
+				createPod(createPodOpts{Name: "foo-pod1", Labels: testLabels, NodeName: "foo-node"}),
+				createPod(createPodOpts{Name: "foo-pod2", Labels: testLabels, NodeName: "foo-node"}),
+				createPDB(createPDBOpts{Name: "foo-pdb", Labels: testLabels, Des: 2, Healthy: 2}),
 			},
 		},
 		{

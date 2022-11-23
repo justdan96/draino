@@ -95,6 +95,7 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 		}
 
 		if res, err := sim.SimulatePodDrain(ctx, pod); err != nil {
+			// TODO add suceeded/failed pod drain simulation count metric
 			reason := fmt.Sprintf("Cannot drain pod '%s', because: %v", pod.GetName(), err)
 			reasons = append(reasons, reason)
 			sim.podResultCache.Add(getPodCacheIdx(pod), simulationResult{result: res, reason: reason})
@@ -107,6 +108,7 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 		simulationResult{result: len(reasons) == 0, reason: resonString},
 	)
 
+	// TODO add suceeded/failed node drain simulation count metric
 	if len(reasons) > 0 {
 		return false, errors.New(resonString)
 	}
