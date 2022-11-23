@@ -61,7 +61,7 @@ func IsPDBBlocked(ctx context.Context, pod *corev1.Pod, pdb *policyv1.PodDisrupt
 	// If the pod is not ready it's already taking budget from the PDB
 	// If the remaining budget is still positive or zero, it's fine
 	var podTakingBudget int32 = 0
-	if utils.IsPodReady(pod) {
+	if !utils.IsPodReady(pod) {
 		podTakingBudget = 1
 	}
 

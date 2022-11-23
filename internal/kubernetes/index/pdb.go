@@ -34,7 +34,25 @@ func (i *Indexer) GetPDBsBlockedByPod(ctx context.Context, podName, ns string) (
 
 // TODO this is just a mock function. It will be replaced by other PR later on
 func (i *Indexer) GetPDBsForPods(ctx context.Context, pods []*corev1.Pod) (map[string][]*policyv1.PodDisruptionBudget, error) {
-	return map[string][]*policyv1.PodDisruptionBudget{}, nil
+	var pdbList policyv1.PodDisruptionBudgetList
+	err := i.client.List(ctx, &pdbList)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string][]*policyv1.PodDisruptionBudget)
+	for _, pdb := range pdbList.Items {
+		selector, _ := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
+
+		for _, pod := range pods {
+			labelSet := labels.Set(pod.Labels)
+			if selector.Matches(labelSet) {
+				result[GeneratePodIndexKey(pod.GetName(), pod.GetNamespace())] = append(result[GeneratePodIndexKey(pod.GetName(), pod.GetNamespace())], &pdb)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func initPDBIndexer(client clientcr.Client, cache cachecr.Cache) error {

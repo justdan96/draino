@@ -79,25 +79,22 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 		return false, err
 	}
 
-	nodeDrainResult := true
 	reasons := []string{}
 	for _, pod := range pods {
 		// TODO handle error
-		pass, _, _ := sim.podFilter(*pod)
-		if !pass {
+		passes, _, _ := sim.podFilter(*pod)
+		if !passes {
 			continue
 		}
 
 		if result, exist := sim.podResultCache.Get(getPodCacheIdx(pod)); exist {
 			if !result.result {
 				reasons = append(reasons, result.reason)
-				nodeDrainResult = false
 			}
 			continue
 		}
 
 		if res, err := sim.SimulatePodDrain(ctx, pod); err != nil {
-			nodeDrainResult = false
 			reason := fmt.Sprintf("Cannot drain pod '%s', because: %v", pod.GetName(), err)
 			reasons = append(reasons, reason)
 			sim.podResultCache.Add(getPodCacheIdx(pod), simulationResult{result: res, reason: reason})
@@ -107,10 +104,14 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 	resonString := strings.Join(reasons, "; ")
 	sim.nodeResultCache.Add(
 		node.GetName(),
-		simulationResult{result: nodeDrainResult, reason: resonString},
+		simulationResult{result: len(reasons) == 0, reason: resonString},
 	)
 
-	return nodeDrainResult, errors.New(resonString)
+	if len(reasons) > 0 {
+		return false, errors.New(resonString)
+	}
+
+	return true, nil
 }
 
 func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1.Pod) (bool, error) {
@@ -131,7 +132,7 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 	// If there is more than one PDB associated to the given pod, the eviction will fail for sure due to the APIServer behaviour.
 	podKey := index.GeneratePodIndexKey(pod.GetName(), pod.GetNamespace())
 	if len(pdbs[podKey]) > 1 {
-		return false, fmt.Errorf("Pod has more than one associated PDB %d > 1", len(pdbs))
+		return false, fmt.Errorf("Pod has more than one associated PDB %d > 1", len(pdbs[podKey]))
 	}
 
 	// If there is a matching PDB, check if it would allow disruptions
@@ -143,15 +144,15 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 	}
 
 	// do a dry-run eviction call
-	evictionDryRunRes := sim.simulateAPIEviction(ctx, pod)
+	evictionDryRunRes, err := sim.simulateAPIEviction(ctx, pod)
 	if !evictionDryRunRes {
-		return false, fmt.Errorf("Eviction dry run was not successful")
+		return false, fmt.Errorf("Eviction dry run was not successful: %v", err)
 	}
 
 	return true, nil
 }
 
-func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *corev1.Pod) bool {
+func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *corev1.Pod) (bool, error) {
 	var gracePeriod int64 = 30
 	err := sim.client.Create(ctx, &policyv1.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
@@ -164,7 +165,7 @@ func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *cor
 		},
 	})
 
-	return err != nil
+	return err == nil, err
 }
 
 func getPodCacheIdx(pod *corev1.Pod) string {
