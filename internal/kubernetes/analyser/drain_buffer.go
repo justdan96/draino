@@ -53,7 +53,7 @@ var _ DrainBufferChecker = &drainBufferChecker{}
 // this structure allow us to carry the value and the source of the configuration
 type drainBufferInfo struct {
 	length     time.Duration
-	sourceKind string
+	sourceType string
 	sourceName string
 }
 
@@ -143,13 +143,13 @@ func (d *drainBufferChecker) runCacheCleanup(ctx context.Context) {
 // if no configuration is found the default value is being used. The result is indexed by podKey
 func (d *drainBufferChecker) getDrainBuffersConfigurations(ctx context.Context, node *v1.Node) map[string]drainBufferInfo {
 	drainBufferNode := drainBufferInfo{
-		sourceKind: "user/node",
+		sourceType: "user/node",
 		sourceName: node.Name,
 	}
 	var found bool
 	if drainBufferNode.length, found = d.getNodeDrainBufferConfiguration(ctx, node); !found {
 		drainBufferNode.length = *d.drainBufferConfig.DefaultDrainBuffer
-		drainBufferNode.sourceKind = "default/node"
+		drainBufferNode.sourceType = "default/node"
 	}
 
 	buffers := map[string]drainBufferInfo{}
@@ -165,14 +165,14 @@ func (d *drainBufferChecker) getDrainBuffersConfigurations(ctx context.Context, 
 		podDrainBufferConfig, found := d.getPodDrainBufferConfiguration(ctx, p)
 		if found && podDrainBufferConfig > drainBufferPod.length {
 			drainBufferPod.length = podDrainBufferConfig
-			drainBufferPod.sourceKind = "user/pod"
+			drainBufferPod.sourceType = "user/pod"
 			drainBufferPod.sourceName = p.Namespace + "/" + p.Name
 
 		} else if ctrl, ok := kubernetes.GetControllerForPod(p, d.store); ok && ctrl != nil {
 			ctrlDrainBufferConfig, found, _ := d.getDrainBufferConfigurationFromAnnotation(ctrl) // Not doing any event on the controller in case of error: we are missing a good method for generic object in the eventRecorder
 			if found && ctrlDrainBufferConfig > drainBufferPod.length {
 				drainBufferPod.length = ctrlDrainBufferConfig
-				drainBufferPod.sourceKind = "user/controller"
+				drainBufferPod.sourceType = "user/controller"
 				drainBufferPod.sourceName = p.Namespace + "/" + ctrl.GetName()
 			}
 		}
