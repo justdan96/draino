@@ -1,14 +1,12 @@
 package drain
 
 import (
-	"context"
 	"time"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	"k8s.io/apimachinery/pkg/runtime"
-	fakeclient "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -29,19 +27,17 @@ func (opts *FakeSimulatorOptions) applyDefaults() {
 	}
 }
 
-func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainSimulator, func(), error) {
+func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainSimulator, error) {
 	opts.applyDefaults()
 
 	fakeIndexer, err := index.NewFakeIndexer(ch, opts.Objects)
 	if err != nil {
-		return nil, func() {}, err
+		return nil, err
 	}
 
 	fakeClient := fake.NewFakeClient(opts.Objects...)
-	store, closeFn := kubernetes.RunStoreForTest(context.Background(), fakeclient.NewSimpleClientset(opts.Objects...))
 
 	simulator := &drainSimulatorImpl{
-		store:          store,
 		podIndexer:     fakeIndexer,
 		pdbIndexer:     fakeIndexer,
 		client:         fakeClient,
@@ -49,5 +45,5 @@ func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainS
 		skipPodFilter:  opts.PodFilter,
 	}
 
-	return simulator, closeFn, nil
+	return simulator, nil
 }

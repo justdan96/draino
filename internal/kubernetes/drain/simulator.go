@@ -27,7 +27,6 @@ type DrainSimulator interface {
 }
 
 type drainSimulatorImpl struct {
-	store      kubernetes.RuntimeObjectStore
 	pdbIndexer index.PDBIndexer
 	podIndexer index.PodIndexer
 	client     client.Client
@@ -44,20 +43,24 @@ type simulationResult struct {
 var _ DrainSimulator = &drainSimulatorImpl{}
 
 func NewDrainSimulator(
+	ctx context.Context,
 	client client.Client,
 	indexer *index.Indexer,
-	store kubernetes.RuntimeObjectStore,
 	skipPodFilter kubernetes.PodFilterFunc,
 ) DrainSimulator {
-	return &drainSimulatorImpl{
-		store:         store,
+	simulator := &drainSimulatorImpl{
 		podIndexer:    indexer,
 		pdbIndexer:    indexer,
 		client:        client,
 		skipPodFilter: skipPodFilter,
 
+		// TODO think about using alternative solutions like a MRU cache
 		podResultCache: utils.NewTTLCache[simulationResult](3*time.Minute, 10*time.Second),
 	}
+
+	go simulator.podResultCache.StartCleanupLoop(ctx)
+
+	return simulator
 }
 
 func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.Node) (bool, error) {
@@ -73,8 +76,6 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 			reasons = append(reasons, fmt.Sprintf("Cannot drain pod '%s', because: %v", pod.GetName(), err))
 		}
 	}
-
-	sim.podResultCache.Cleanup(time.Now())
 
 	// TODO add suceeded/failed node drain simulation count metric
 	if len(reasons) > 0 {
@@ -95,13 +96,6 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 	}
 	if !passes {
 		// If the pod does not pass the filter, it means that it will be accepted by default
-		return sim.writePodCache(pod, true, nil)
-	}
-
-	// If eviction++ is enabled for the pod or controller, we don't want to perform any actions as there might not be any dry-run mode.
-	// We'll just assume a successful simulation as we can neither know that it will succeed nor that it'll fail, so we have to try it.
-	_, ok := kubernetes.GetAnnotationFromPodOrController(kubernetes.EvictionAPIURLAnnotationKey, pod, sim.store)
-	if ok {
 		return sim.writePodCache(pod, true, nil)
 	}
 

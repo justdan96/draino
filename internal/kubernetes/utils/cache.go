@@ -39,6 +39,7 @@ type ttlEntry[T any] struct {
 
 // NewTTLCache will create an instance of the TTLCache
 func NewTTLCache[T any](ttl, cleanup time.Duration) TTLCache[T] {
+	// TODO add metrics to monitor cache usage
 	return &ttlCacheImpl[T]{
 		ttl:           ttl,
 		cleanupPeriod: cleanup,

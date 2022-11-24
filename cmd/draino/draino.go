@@ -569,9 +569,9 @@ func controllerRuntimeBootstrap() {
 	// just to consume analyzer
 	_ = analyser.NewPDBAnalyser(indexer)
 	_ = drain.NewDrainSimulator(
+		context.Background(),
 		mgr.GetClient(),
 		indexer,
-		nil,
 		func(p core.Pod) (pass bool, reason string, err error) { return true, "", nil },
 	)
 	logger.Info("ControllerRuntime bootstrap")

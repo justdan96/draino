@@ -106,16 +106,6 @@ func TestSimulator_SimulateDrain(t *testing.T) {
 			},
 		},
 		{
-			Name:        "Should ignore pods using the eviction++ feature",
-			IsDrainable: true,
-			PodFilter:   noopPodFilter,
-			Node:        corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "foo-node"}},
-			Objects: []runtime.Object{
-				createEvictionPPPod(createPodOpts{Name: "foo-pod", Labels: testLabels, NodeName: "foo-node"}),
-				createPDB(createPDBOpts{Name: "foo-pdb", Labels: testLabels, Des: 2, Healthy: 2}),
-			},
-		},
-		{
 			Name:        "Should not drain if one pod has multiple PDBs",
 			IsDrainable: false,
 			PodFilter:   noopPodFilter,
@@ -132,14 +122,13 @@ func TestSimulator_SimulateDrain(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
-			simulator, closingFunc, err := NewFakeDrainSimulator(
+			simulator, err := NewFakeDrainSimulator(
 				ch,
 				&FakeSimulatorOptions{
 					Objects:   append(tt.Objects, &tt.Node),
 					PodFilter: tt.PodFilter,
 				},
 			)
-			defer closingFunc()
 			assert.NoError(t, err)
 
 			drainable, err := simulator.SimulateDrain(context.Background(), &tt.Node)
