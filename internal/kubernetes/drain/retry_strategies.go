@@ -100,7 +100,7 @@ func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrate
 }
 
 func (_ *NodeAnnotationRetryStrategy) GetName() string {
-	return "CustomRetryStrategy"
+	return "NodeAnnotationRetryStrategy"
 }
 
 func (strategy *NodeAnnotationRetryStrategy) GetDelay(retries int) time.Duration {

@@ -16,7 +16,7 @@ const RetryWallCountAnnotation = "draino/retry-attempt"
 
 type RetryWall interface {
 	RegisterRetryStrategies(...RetryStrategy)
-	GetDelay(*corev1.Node) (delay time.Duration, canRetry bool, err error)
+	GetDelay(*corev1.Node) (delay time.Duration, err error)
 	NoteDrainFailure(*corev1.Node) error
 	ResetRetryCount(*corev1.Node) error
 }
@@ -52,7 +52,7 @@ func (wall *retryWallImpl) RegisterRetryStrategies(strategies ...RetryStrategy) 
 	}
 }
 
-func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, bool, error) {
+func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, error) {
 	retries, err := wall.getRetryCount(node)
 	if err != nil {
 		// TODO does this make sense? Theoretically getRetryCount only fails if the number in the annotation is not parseable.
@@ -62,19 +62,19 @@ func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, bool, err
 
 	// if this is the first try, we should not inject any delay
 	if retries == 0 {
-		return 0, true, nil
+		return 0, nil
 	}
 
 	strategy, err := wall.getStrategyFromNode(node)
 	if err != nil {
-		return 0, false, err
+		return 0, err
 	}
 
 	if retries >= strategy.GetMaxRetries() {
-		return 0, false, nil
+		wall.logger.Info("retry wall is hitting limit for node", "node_name", node.GetName(), "retry_strategy", strategy.GetName(), "retries", retries, "max_retries", strategy.GetMaxRetries())
 	}
 
-	return strategy.GetDelay(retries), true, nil
+	return strategy.GetDelay(retries), nil
 }
 
 func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) (RetryStrategy, error) {

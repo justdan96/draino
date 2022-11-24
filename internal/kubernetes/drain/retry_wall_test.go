@@ -21,7 +21,6 @@ func TestRetryWall(t *testing.T) {
 		Strategy        RetryStrategy
 		DefaultStrategy string
 		ExpectedDelay   *time.Duration
-		CanRetry        bool
 		FailureCount    int64
 	}{
 		{
@@ -29,7 +28,6 @@ func TestRetryWall(t *testing.T) {
 			// in a unit test, jsonpatch needs a default annotations map, which is not empty
 			Node:         &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
 			Strategy:     &StaticRetryStrategy{Delay: time.Minute, MaxRetries: 10},
-			CanRetry:     true,
 			FailureCount: 2,
 		},
 		{
@@ -37,7 +35,6 @@ func TestRetryWall(t *testing.T) {
 			// in a unit test, jsonpatch needs a default annotations map, which is not empty
 			Node:         &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
 			Strategy:     &ExponentialRetryStrategy{Delay: time.Minute, MaxRetries: 10},
-			CanRetry:     true,
 			FailureCount: 3,
 		},
 		{
@@ -45,7 +42,6 @@ func TestRetryWall(t *testing.T) {
 			Node:          &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{RetryWallCountAnnotation: "0"}}},
 			Strategy:      &ExponentialRetryStrategy{Delay: time.Minute, MaxRetries: 10},
 			ExpectedDelay: durationPtr(time.Duration(0)),
-			CanRetry:      true,
 			FailureCount:  0,
 		},
 		{
@@ -53,7 +49,6 @@ func TestRetryWall(t *testing.T) {
 			Node:          &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
 			Strategy:      &StaticRetryStrategy{MaxRetries: 4},
 			ExpectedDelay: durationPtr(time.Duration(0)),
-			CanRetry:      false,
 			FailureCount:  5,
 		},
 	}
@@ -65,10 +60,9 @@ func TestRetryWall(t *testing.T) {
 			retryWall := NewRetryWall(fakeClient, logr.Discard(), tt.Strategy)
 
 			// make sure that the node will have no delay in the beginning
-			duration, canRetry, err := retryWall.GetDelay(tt.Node)
+			duration, err := retryWall.GetDelay(tt.Node)
 			assert.NoError(t, err)
 			assert.Equal(t, time.Duration(0), duration, "There should be no delay in the beginning")
-			assert.Equal(t, true, canRetry, "We should be able to retry in the beginning")
 
 			// inject drain failures
 			for i := 0; i < int(tt.FailureCount); i++ {
@@ -88,9 +82,8 @@ func TestRetryWall(t *testing.T) {
 			assert.Equal(t, tt.FailureCount, intVal, "Failure count on node should match expected count")
 
 			// make sure that the result delay is as expected
-			delay, canRetry, err := retryWall.GetDelay(&node)
+			delay, err := retryWall.GetDelay(&node)
 			assert.NoError(t, err)
-			assert.Equal(t, tt.CanRetry, canRetry)
 			expectedDelay := tt.Strategy.GetDelay(int(tt.FailureCount))
 			if tt.ExpectedDelay != nil {
 				expectedDelay = *tt.ExpectedDelay
