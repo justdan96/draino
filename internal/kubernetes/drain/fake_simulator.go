@@ -42,15 +42,12 @@ func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainS
 	defer closeFn()
 
 	simulator := &drainSimulatorImpl{
-		store:      store,
-		podIndexer: fakeIndexer,
-		pdbIndexer: fakeIndexer,
-		client:     fakeClient,
-
-		nodeResultCache: utils.NewTTLCache[simulationResult](*opts.CacheTTL, *opts.CleanupDuration),
-		podResultCache:  utils.NewTTLCache[simulationResult](*opts.CacheTTL, *opts.CleanupDuration),
-
-		podFilter: opts.PodFilter,
+		store:          store,
+		podIndexer:     fakeIndexer,
+		pdbIndexer:     fakeIndexer,
+		client:         fakeClient,
+		podResultCache: utils.NewTTLCache[simulationResult](*opts.CacheTTL, *opts.CleanupDuration),
+		podFilter:      opts.PodFilter,
 	}
 
 	return simulator, nil

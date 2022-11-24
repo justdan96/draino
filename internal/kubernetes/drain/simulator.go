@@ -32,15 +32,13 @@ type drainSimulatorImpl struct {
 	podIndexer index.PodIndexer
 	client     client.Client
 	// podFilter will be used to evaluate if pods running on a node should go through the eviction simulation
-	podFilter kubernetes.PodFilterFunc
-
-	nodeResultCache utils.TTLCache[simulationResult]
-	podResultCache  utils.TTLCache[simulationResult]
+	podFilter      kubernetes.PodFilterFunc
+	podResultCache utils.TTLCache[simulationResult]
 }
 
 type simulationResult struct {
 	result bool
-	reason string
+	reason error
 }
 
 var _ DrainSimulator = &drainSimulatorImpl{}
@@ -52,29 +50,18 @@ func NewDrainSimulator(
 	store kubernetes.RuntimeObjectStore,
 	podFilter kubernetes.PodFilterFunc,
 ) DrainSimulator {
-	simulator := &drainSimulatorImpl{
+	return &drainSimulatorImpl{
 		store:      store,
 		podIndexer: indexer,
 		pdbIndexer: indexer,
 		client:     client,
 		podFilter:  podFilter,
 
-		// TODO i'm not very sure if both of the caches make sense, as they will cache the same result
-		nodeResultCache: utils.NewTTLCache[simulationResult](3*time.Minute, 10*time.Second),
-		podResultCache:  utils.NewTTLCache[simulationResult](3*time.Minute, 10*time.Second),
+		podResultCache: utils.NewTTLCache[simulationResult](3*time.Minute, 10*time.Second),
 	}
-
-	go simulator.nodeResultCache.StartCleanupLoop(ctx)
-	go simulator.podResultCache.StartCleanupLoop(ctx)
-
-	return simulator
 }
 
 func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.Node) (bool, error) {
-	if result, exist := sim.nodeResultCache.Get(string(node.GetUID()), time.Now()); exist {
-		return result.result, errors.New(result.reason)
-	}
-
 	pods, err := sim.podIndexer.GetPodsByNode(ctx, node.GetName())
 	if err != nil {
 		return false, err
@@ -82,49 +69,41 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 
 	reasons := []string{}
 	for _, pod := range pods {
-		// TODO handle error
-		passes, _, _ := sim.podFilter(*pod)
-		if !passes {
-			continue
-		}
-
-		if result, exist := sim.podResultCache.Get(string(pod.GetUID()), time.Now()); exist {
-			if !result.result {
-				reasons = append(reasons, result.reason)
-			}
-			continue
-		}
-
-		if res, err := sim.SimulatePodDrain(ctx, pod); err != nil {
+		if _, err := sim.SimulatePodDrain(ctx, pod); err != nil {
 			// TODO add suceeded/failed pod drain simulation count metric
-			reason := fmt.Sprintf("Cannot drain pod '%s', because: %v", pod.GetName(), err)
-			reasons = append(reasons, reason)
-			sim.podResultCache.Add(string(pod.GetUID()), simulationResult{result: res, reason: reason})
+			reasons = append(reasons, fmt.Sprintf("Cannot drain pod '%s', because: %v", pod.GetName(), err))
 		}
 	}
 
-	resonString := strings.Join(reasons, "; ")
-	sim.nodeResultCache.Add(
-		string(node.GetUID()),
-		simulationResult{result: len(reasons) == 0, reason: resonString},
-	)
+	sim.podResultCache.Cleanup(time.Now())
 
 	// TODO add suceeded/failed node drain simulation count metric
 	if len(reasons) > 0 {
-		return false, errors.New(resonString)
+		return false, errors.New(strings.Join(reasons, "; "))
 	}
 
 	return true, nil
 }
 
 func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1.Pod) (bool, error) {
-	// TODO should we check if the given pod will be accepted by the filter?
+	if res, exist := sim.podResultCache.Get(string(pod.UID), time.Now()); exist {
+		return res.result, res.reason
+	}
+
+	passes, _, err := sim.podFilter(*pod)
+	if err != nil {
+		return false, err
+	}
+	if !passes {
+		// If the pod does not pass the filter, it means that it will be accepted by default
+		return sim.writePodCache(pod, true, nil)
+	}
 
 	// If eviction++ is enabled for the pod or controller, we don't want to perform any actions as there might not be any dry-run mode.
 	// We'll just assume a successful simulation as we can neither know that it will succeed nor that it'll fail, so we have to try it.
 	_, ok := kubernetes.GetAnnotationFromPodOrController(kubernetes.EvictionAPIURLAnnotationKey, pod, sim.store)
 	if ok {
-		return true, nil
+		return sim.writePodCache(pod, true, nil)
 	}
 
 	pdbs, err := sim.pdbIndexer.GetPDBsForPods(ctx, []*corev1.Pod{pod})
@@ -135,24 +114,24 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 	// If there is more than one PDB associated to the given pod, the eviction will fail for sure due to the APIServer behaviour.
 	podKey := index.GeneratePodIndexKey(pod.GetName(), pod.GetNamespace())
 	if len(pdbs[podKey]) > 1 {
-		return false, fmt.Errorf("Pod has more than one associated PDB %d > 1", len(pdbs[podKey]))
+		return sim.writePodCache(pod, false, fmt.Errorf("Pod has more than one associated PDB %d > 1", len(pdbs[podKey])))
 	}
 
 	// If there is a matching PDB, check if it would allow disruptions
 	if len(pdbs[podKey]) == 1 {
 		pdb := pdbs[podKey][0]
 		if analyser.IsPDBBlocked(ctx, pod, pdb) {
-			return false, fmt.Errorf("PDB '%s' does not allow any disruptions", pdb.GetName())
+			return sim.writePodCache(pod, false, fmt.Errorf("PDB '%s' does not allow any disruptions", pdb.GetName()))
 		}
 	}
 
 	// do a dry-run eviction call
 	evictionDryRunRes, err := sim.simulateAPIEviction(ctx, pod)
 	if !evictionDryRunRes {
-		return false, fmt.Errorf("Eviction dry run was not successful: %v", err)
+		return sim.writePodCache(pod, false, fmt.Errorf("Eviction dry run was not successful: %v", err))
 	}
 
-	return true, nil
+	return sim.writePodCache(pod, true, nil)
 }
 
 func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *corev1.Pod) (bool, error) {
@@ -169,4 +148,9 @@ func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *cor
 	})
 
 	return err == nil, err
+}
+
+func (sim *drainSimulatorImpl) writePodCache(pod *corev1.Pod, result bool, err error) (bool, error) {
+	sim.podResultCache.Add(string(pod.GetUID()), simulationResult{result: result, reason: err})
+	return result, err
 }
