@@ -70,6 +70,11 @@ func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, error) {
 		retries = 0
 	}
 
+	// if this is the first try, we should not inject any delay
+	if retries == 0 {
+		return 0, nil
+	}
+
 	return strategy.GetDuration(retries), nil
 }
 
