@@ -22,15 +22,11 @@ type FakeSimulatorOptions struct {
 
 func (opts *FakeSimulatorOptions) applyDefaults() {
 	if opts.CacheTTL == nil {
-		opts.CacheTTL = durationPtr(time.Minute)
+		opts.CacheTTL = utils.DurationPtr(time.Minute)
 	}
 	if opts.CleanupDuration == nil {
-		opts.CleanupDuration = durationPtr(10 * time.Second)
+		opts.CleanupDuration = utils.DurationPtr(10 * time.Second)
 	}
-}
-
-func durationPtr(dur time.Duration) *time.Duration {
-	return &dur
 }
 
 func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainSimulator, error) {
@@ -42,9 +38,11 @@ func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainS
 	}
 
 	fakeClient := fake.NewFakeClient(opts.Objects...)
+	store, closeFn := kubernetes.RunStoreForTest(context.Background(), fakeclient.NewSimpleClientset(opts.Objects...))
+	defer closeFn()
 
 	simulator := &drainSimulatorImpl{
-		store:      newFakeObjectStore(opts.Objects),
+		store:      store,
 		podIndexer: fakeIndexer,
 		pdbIndexer: fakeIndexer,
 		client:     fakeClient,
@@ -56,10 +54,4 @@ func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainS
 	}
 
 	return simulator, nil
-}
-
-func newFakeObjectStore(objects []runtime.Object) kubernetes.RuntimeObjectStore {
-	return &kubernetes.RuntimeObjectStoreImpl{
-		StatefulSetsStore: kubernetes.NewStatefulsetWatch(context.Background(), fakeclient.NewSimpleClientset(objects...)),
-	}
 }
