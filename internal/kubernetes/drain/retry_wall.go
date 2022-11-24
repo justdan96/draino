@@ -12,13 +12,13 @@ import (
 )
 
 // TODO think about proper annotation name
-const RetryWallCountAnnotation = "hier"
+const RetryWallCountAnnotation = "draino/retry-attempt"
 
 type RetryWall interface {
 	RegisterRetryStrategies(...RetryStrategy)
 	// TODO instead of separately selecting the default, we could also use the first one passed to "RegisterRetryStrategy"
 	SelectDefaultStrategy(strategyName string) error
-	GetDelay(*corev1.Node) (time.Duration, error)
+	GetDelay(*corev1.Node) (delay time.Duration, canRetry bool, err error)
 	NoteDrainFailure(*corev1.Node) error
 	ResetRetryCount(*corev1.Node) error
 }
@@ -32,6 +32,7 @@ type retryWallImpl struct {
 
 var _ RetryWall = &retryWallImpl{}
 
+// TODO maybe pass strategies here
 func NewRetryWall(client client.Client, logger logr.Logger) RetryWall {
 	return &retryWallImpl{
 		client:          client,
@@ -41,6 +42,7 @@ func NewRetryWall(client client.Client, logger logr.Logger) RetryWall {
 	}
 }
 
+// TODO remove and use the first registerd strategy
 func (wall *retryWallImpl) SelectDefaultStrategy(strategyName string) error {
 	if _, ok := wall.strategies[strategyName]; !ok {
 		return fmt.Errorf("Strategy with name '%s' is not registered", strategyName)
@@ -57,12 +59,7 @@ func (wall *retryWallImpl) RegisterRetryStrategies(strategies ...RetryStrategy) 
 	}
 }
 
-func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, error) {
-	strategy, err := wall.getStrategyFromNode(node)
-	if err != nil {
-		return time.Second, err
-	}
-
+func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, bool, error) {
 	retries, err := wall.getRetryCount(node)
 	if err != nil {
 		// TODO does this make sense? Theoretically getRetryCount only fails if the number in the annotation is not parseable.
@@ -72,19 +69,36 @@ func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, error) {
 
 	// if this is the first try, we should not inject any delay
 	if retries == 0 {
-		return 0, nil
+		return 0, true, nil
 	}
 
-	return strategy.GetDuration(retries), nil
+	strategy, err := wall.getStrategyFromNode(node)
+	if err != nil {
+		return 0, false, err
+	}
+
+	if retries >= strategy.GetMaxRetries() {
+		return 0, false, nil
+	}
+
+	return strategy.GetDuration(retries), true, nil
 }
 
 func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) (RetryStrategy, error) {
 	// TODO: here we can check the node annotations and find the related strategy
-	strategy, ok := wall.strategies[wall.defaultStrategy]
+	defaultStrategy, ok := wall.strategies[wall.defaultStrategy]
 	if !ok {
 		return nil, fmt.Errorf("Cannot find default strategy '%s'.", wall.defaultStrategy)
 	}
-	return strategy, nil
+
+	// TODO log error as event?
+	nodeAnnotationStrategy, useDefault, err := BuildNodeAnnotationRetryStrategy(node, defaultStrategy)
+	// for now we are using the default strategy in case of an error
+	if err == nil && !useDefault {
+		return nodeAnnotationStrategy, nil
+	}
+
+	return defaultStrategy, nil
 }
 
 func (wall *retryWallImpl) NoteDrainFailure(node *corev1.Node) error {
