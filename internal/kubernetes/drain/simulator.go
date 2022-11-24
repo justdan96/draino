@@ -19,7 +19,7 @@ import (
 
 type DrainSimulator interface {
 	// SimulateDrain will simulate a drain for the given node.
-	// This means that it will perform an eviction simulation of all pods that are accepted by the internal filters.
+	// This means that it will perform an eviction simulation of all pods running on the node.
 	SimulateDrain(context.Context, *corev1.Node) (bool, error)
 	// SimulatePodDrain will simulate a drain of the given pod.
 	// Before calling the API server it will make sure that some of the obvious problems are not given.
@@ -31,7 +31,8 @@ type drainSimulatorImpl struct {
 	pdbIndexer index.PDBIndexer
 	podIndexer index.PodIndexer
 	client     client.Client
-	podFilter  kubernetes.PodFilterFunc
+	// podFilter will be used to evaluate if pods running on a node should go through the eviction simulation
+	podFilter kubernetes.PodFilterFunc
 
 	nodeResultCache utils.TTLCache[simulationResult]
 	podResultCache  utils.TTLCache[simulationResult]
