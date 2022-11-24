@@ -57,11 +57,11 @@ func TestRetryWall(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			// setup everything
 			fakeClient := fake.NewFakeClient(tt.Node)
-			retryWall := NewRetryWall(fakeClient, logr.Discard(), tt.Strategy)
+			retryWall, err := NewRetryWall(fakeClient, logr.Discard(), tt.Strategy)
+			assert.NoError(t, err)
 
 			// make sure that the node will have no delay in the beginning
-			duration, err := retryWall.GetDelay(tt.Node)
-			assert.NoError(t, err)
+			duration := retryWall.GetDelay(tt.Node)
 			assert.Equal(t, time.Duration(0), duration, "There should be no delay in the beginning")
 
 			// inject drain failures
@@ -82,8 +82,7 @@ func TestRetryWall(t *testing.T) {
 			assert.Equal(t, tt.FailureCount, intVal, "Failure count on node should match expected count")
 
 			// make sure that the result delay is as expected
-			delay, err := retryWall.GetDelay(&node)
-			assert.NoError(t, err)
+			delay := retryWall.GetDelay(&node)
 			expectedDelay := tt.Strategy.GetDelay(int(tt.FailureCount))
 			if tt.ExpectedDelay != nil {
 				expectedDelay = *tt.ExpectedDelay

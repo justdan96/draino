@@ -9,12 +9,15 @@ import (
 )
 
 type RetryStrategy interface {
+	// GetName returns a unique name of the strategy
 	GetName() string
+	// GetDelay will return a delay based on the given retry count
 	GetDelay(retryCount int) time.Duration
+	// GetMaxRetries will return the amount of accepted retries
 	GetMaxRetries() int
 }
 
-// StaticRetryStrategy
+// StaticRetryStrategy is a very simple strategy, which always returns the same delay
 type StaticRetryStrategy struct {
 	MaxRetries int
 	Delay      time.Duration
@@ -34,7 +37,11 @@ func (strategy *StaticRetryStrategy) GetMaxRetries() int {
 	return strategy.MaxRetries
 }
 
-// ExponentialRetryStrategy
+// ExponentialRetryStrategy is using the exponential backoff algorithm
+// retry 0 -> 0 delay
+// retry 1 -> 1 delay
+// retry 2 -> 2 delay
+// Retry 3 -> 4 delay
 type ExponentialRetryStrategy struct {
 	MaxRetries int
 	Delay      time.Duration
@@ -62,7 +69,9 @@ func (strategy *ExponentialRetryStrategy) GetMaxRetries() int {
 	return strategy.MaxRetries
 }
 
-// NodeAnnotationRetryStrategy
+// NodeAnnotationRetryStrategy is parsing specific node annotations and using their values to take delay decisions.
+// It will return useDefault=true if none of the annotations was set.
+// If only one annotation is set it will use the given default strategy as fallback for the others
 type NodeAnnotationRetryStrategy struct {
 	MaxRetries      *int
 	Delay           *time.Duration

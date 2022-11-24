@@ -15,29 +15,42 @@ import (
 const RetryWallCountAnnotation = "draino/retry-attempt"
 
 type RetryWall interface {
+	// RegisterRetryStrategies will register the given list of strategies to be used by the nodes
 	RegisterRetryStrategies(...RetryStrategy)
-	GetDelay(*corev1.Node) (delay time.Duration, err error)
+	// GetDelay will return a delay to be respected since the last drain try
+	GetDelay(*corev1.Node) (delay time.Duration)
+	// NoteDrainFailure will increase the retry-cont on the nde by one
 	NoteDrainFailure(*corev1.Node) error
+	// ResetRetryCount will reset the retry count of the given node to zero
 	ResetRetryCount(*corev1.Node) error
 }
 
 type retryWallImpl struct {
-	logger          logr.Logger
-	client          client.Client
+	logger logr.Logger
+	client client.Client
+	// the default strategy is the first one passed to RegisterRetryStrategies
+	// it's also available in the strategies map
 	defaultStrategy RetryStrategy
 	strategies      map[string]RetryStrategy
 }
 
 var _ RetryWall = &retryWallImpl{}
 
-func NewRetryWall(client client.Client, logger logr.Logger, strategies ...RetryStrategy) RetryWall {
+// NewRetryWall will return a new instance of the retry wall
+// It will return an error if no strategy was given
+func NewRetryWall(client client.Client, logger logr.Logger, strategies ...RetryStrategy) (RetryWall, error) {
+	if len(strategies) == 0 {
+		return nil, fmt.Errorf("please provide at least one retry strategy to the retry wall, otherwise it will not work.")
+	}
+
 	wall := &retryWallImpl{
 		client:     client,
-		logger:     logger,
+		logger:     logger.WithName("retry-wall"),
 		strategies: map[string]RetryStrategy{},
 	}
 	wall.RegisterRetryStrategies(strategies...)
-	return wall
+
+	return wall, nil
 }
 
 func (wall *retryWallImpl) RegisterRetryStrategies(strategies ...RetryStrategy) {
@@ -52,7 +65,7 @@ func (wall *retryWallImpl) RegisterRetryStrategies(strategies ...RetryStrategy) 
 	}
 }
 
-func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, error) {
+func (wall *retryWallImpl) GetDelay(node *corev1.Node) time.Duration {
 	retries, err := wall.getRetryCount(node)
 	if err != nil {
 		// TODO does this make sense? Theoretically getRetryCount only fails if the number in the annotation is not parseable.
@@ -62,31 +75,27 @@ func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, error) {
 
 	// if this is the first try, we should not inject any delay
 	if retries == 0 {
-		return 0, nil
+		return 0
 	}
 
-	strategy, err := wall.getStrategyFromNode(node)
-	if err != nil {
-		return 0, err
-	}
-
+	strategy := wall.getStrategyFromNode(node)
 	if retries >= strategy.GetMaxRetries() {
 		wall.logger.Info("retry wall is hitting limit for node", "node_name", node.GetName(), "retry_strategy", strategy.GetName(), "retries", retries, "max_retries", strategy.GetMaxRetries())
 	}
 
-	return strategy.GetDelay(retries), nil
+	return strategy.GetDelay(retries)
 }
 
-func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) (RetryStrategy, error) {
+func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) RetryStrategy {
 	// TODO: here we can check the node annotations and find the related strategy
 	// TODO log error as event?
 	nodeAnnotationStrategy, useDefault, err := BuildNodeAnnotationRetryStrategy(node, wall.defaultStrategy)
 	// for now we are using the default strategy in case of an error
 	if err == nil && !useDefault {
-		return nodeAnnotationStrategy, nil
+		return nodeAnnotationStrategy
 	}
 
-	return wall.defaultStrategy, nil
+	return wall.defaultStrategy
 }
 
 func (wall *retryWallImpl) NoteDrainFailure(node *corev1.Node) error {
