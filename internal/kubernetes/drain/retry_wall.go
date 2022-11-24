@@ -74,7 +74,7 @@ func (wall *retryWallImpl) GetDelay(node *corev1.Node) (time.Duration, bool, err
 		return 0, false, nil
 	}
 
-	return strategy.GetDuration(retries), true, nil
+	return strategy.GetDelay(retries), true, nil
 }
 
 func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) (RetryStrategy, error) {

@@ -1,6 +1,7 @@
 package drain
 
 import (
+	"math"
 	"time"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
@@ -9,7 +10,7 @@ import (
 
 type RetryStrategy interface {
 	GetName() string
-	GetDuration(retryCount int) time.Duration
+	GetDelay(retryCount int) time.Duration
 	GetMaxRetries() int
 }
 
@@ -25,7 +26,7 @@ func (_ *StaticRetryStrategy) GetName() string {
 	return "StaticRetryStrategy"
 }
 
-func (strategy *StaticRetryStrategy) GetDuration(_ int) time.Duration {
+func (strategy *StaticRetryStrategy) GetDelay(_ int) time.Duration {
 	return strategy.Delay
 }
 
@@ -35,7 +36,8 @@ func (strategy *StaticRetryStrategy) GetMaxRetries() int {
 
 // ExponentialRetryStrategy
 type ExponentialRetryStrategy struct {
-	Delay time.Duration
+	MaxRetries int
+	Delay      time.Duration
 }
 
 var _ RetryStrategy = &ExponentialRetryStrategy{}
@@ -44,7 +46,7 @@ func (_ *ExponentialRetryStrategy) GetName() string {
 	return "ExponentialRetryStrategy"
 }
 
-func (strategy *ExponentialRetryStrategy) GetDuration(retryCount int) time.Duration {
+func (strategy *ExponentialRetryStrategy) GetDelay(retryCount int) time.Duration {
 	// The first retry should return 1 * delay, But 2 ^ 1 = 2, which means it would return 2 * delay
 	// This means that we have to subtract one from the retryCount, so that 2 ^ 0 = 1 -> 1 * duration for retryCount = 1
 	retries := retryCount - 1
@@ -52,12 +54,12 @@ func (strategy *ExponentialRetryStrategy) GetDuration(retryCount int) time.Durat
 		return 0
 	}
 
-	var exponent int64 = 2 ^ int64(retryCount)
+	exponent := int64(math.Pow(2, float64(retries)))
 	return time.Duration(exponent) * strategy.Delay
 }
 
-func (_ *ExponentialRetryStrategy) GetMaxRetries() int {
-	return 10
+func (strategy *ExponentialRetryStrategy) GetMaxRetries() int {
+	return strategy.MaxRetries
 }
 
 // NodeAnnotationRetryStrategy
@@ -77,9 +79,7 @@ func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrate
 	attempts, useDefault, err := kubernetes.GetNodeRetryMaxAttempt(node)
 	if err != nil {
 		funcErr = err
-		return
-	}
-	if !useDefault {
+	} else if !useDefault {
 		useDefault = false
 		maxRetries := int(attempts)
 		nodeRetryStrat.MaxRetries = &maxRetries
@@ -88,13 +88,11 @@ func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrate
 	if val, exist := node.Annotations[kubernetes.CustomRetryBackoffDelayAnnotation]; exist {
 		durationValue, err := time.ParseDuration(val)
 		if err != nil {
-			useDefault = true
 			funcErr = err
-			return
+		} else {
+			useDefault = false
+			nodeRetryStrat.Delay = &durationValue
 		}
-
-		useDefault = false
-		nodeRetryStrat.Delay = &durationValue
 	}
 
 	strategy = nodeRetryStrat
@@ -105,9 +103,9 @@ func (_ *NodeAnnotationRetryStrategy) GetName() string {
 	return "CustomRetryStrategy"
 }
 
-func (strategy *NodeAnnotationRetryStrategy) GetDuration(retries int) time.Duration {
+func (strategy *NodeAnnotationRetryStrategy) GetDelay(retries int) time.Duration {
 	if strategy.Delay == nil {
-		return strategy.DefaultStrategy.GetDuration(retries)
+		return strategy.DefaultStrategy.GetDelay(retries)
 	}
 	return *strategy.Delay
 }

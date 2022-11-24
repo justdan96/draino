@@ -36,14 +36,14 @@ func TestRetryWall(t *testing.T) {
 			Name: "Should properly calculate retry delay for node",
 			// in a unit test, jsonpatch needs a default annotations map, which is not empty
 			Node:         &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
-			Strategy:     &ExponentialRetryStrategy{Delay: time.Minute},
+			Strategy:     &ExponentialRetryStrategy{Delay: time.Minute, MaxRetries: 10},
 			CanRetry:     true,
 			FailureCount: 3,
 		},
 		{
 			Name:          "Should not return any delay if there was no failure",
 			Node:          &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{RetryWallCountAnnotation: "0"}}},
-			Strategy:      &ExponentialRetryStrategy{Delay: time.Minute},
+			Strategy:      &ExponentialRetryStrategy{Delay: time.Minute, MaxRetries: 10},
 			ExpectedDelay: durationPtr(time.Duration(0)),
 			CanRetry:      true,
 			FailureCount:  0,
@@ -91,7 +91,7 @@ func TestRetryWall(t *testing.T) {
 			delay, canRetry, err := retryWall.GetDelay(&node)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.CanRetry, canRetry)
-			expectedDelay := tt.Strategy.GetDuration(int(tt.FailureCount))
+			expectedDelay := tt.Strategy.GetDelay(int(tt.FailureCount))
 			if tt.ExpectedDelay != nil {
 				expectedDelay = *tt.ExpectedDelay
 			}
