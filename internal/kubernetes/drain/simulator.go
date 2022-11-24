@@ -71,7 +71,7 @@ func NewDrainSimulator(
 }
 
 func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.Node) (bool, error) {
-	if result, exist := sim.nodeResultCache.Get(string(node.GetUID())); exist {
+	if result, exist := sim.nodeResultCache.Get(string(node.GetUID()), time.Now()); exist {
 		return result.result, errors.New(result.reason)
 	}
 
@@ -88,7 +88,7 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 			continue
 		}
 
-		if result, exist := sim.podResultCache.Get(string(pod.GetUID())); exist {
+		if result, exist := sim.podResultCache.Get(string(pod.GetUID()), time.Now()); exist {
 			if !result.result {
 				reasons = append(reasons, result.reason)
 			}
