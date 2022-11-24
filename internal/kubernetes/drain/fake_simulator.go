@@ -29,17 +29,16 @@ func (opts *FakeSimulatorOptions) applyDefaults() {
 	}
 }
 
-func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainSimulator, error) {
+func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainSimulator, func(), error) {
 	opts.applyDefaults()
 
 	fakeIndexer, err := index.NewFakeIndexer(ch, opts.Objects)
 	if err != nil {
-		return nil, err
+		return nil, func() {}, err
 	}
 
 	fakeClient := fake.NewFakeClient(opts.Objects...)
 	store, closeFn := kubernetes.RunStoreForTest(context.Background(), fakeclient.NewSimpleClientset(opts.Objects...))
-	defer closeFn()
 
 	simulator := &drainSimulatorImpl{
 		store:          store,
@@ -47,8 +46,8 @@ func NewFakeDrainSimulator(ch chan struct{}, opts *FakeSimulatorOptions) (DrainS
 		pdbIndexer:     fakeIndexer,
 		client:         fakeClient,
 		podResultCache: utils.NewTTLCache[simulationResult](*opts.CacheTTL, *opts.CleanupDuration),
-		podFilter:      opts.PodFilter,
+		skipPodFilter:  opts.PodFilter,
 	}
 
-	return simulator, nil
+	return simulator, closeFn, nil
 }

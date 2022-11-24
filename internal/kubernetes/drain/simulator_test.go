@@ -132,13 +132,14 @@ func TestSimulator_SimulateDrain(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			ch := make(chan struct{})
 			defer close(ch)
-			simulator, err := NewFakeDrainSimulator(
+			simulator, closingFunc, err := NewFakeDrainSimulator(
 				ch,
 				&FakeSimulatorOptions{
 					Objects:   append(tt.Objects, &tt.Node),
 					PodFilter: tt.PodFilter,
 				},
 			)
+			defer closingFunc()
 			assert.NoError(t, err)
 
 			drainable, err := simulator.SimulateDrain(context.Background(), &tt.Node)

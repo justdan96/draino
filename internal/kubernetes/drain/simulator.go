@@ -31,8 +31,8 @@ type drainSimulatorImpl struct {
 	pdbIndexer index.PDBIndexer
 	podIndexer index.PodIndexer
 	client     client.Client
-	// podFilter will be used to evaluate if pods running on a node should go through the eviction simulation
-	podFilter      kubernetes.PodFilterFunc
+	// skipPodFilter will be used to evaluate if pods running on a node should go through the eviction simulation
+	skipPodFilter  kubernetes.PodFilterFunc
 	podResultCache utils.TTLCache[simulationResult]
 }
 
@@ -44,18 +44,17 @@ type simulationResult struct {
 var _ DrainSimulator = &drainSimulatorImpl{}
 
 func NewDrainSimulator(
-	ctx context.Context,
 	client client.Client,
 	indexer *index.Indexer,
 	store kubernetes.RuntimeObjectStore,
-	podFilter kubernetes.PodFilterFunc,
+	skipPodFilter kubernetes.PodFilterFunc,
 ) DrainSimulator {
 	return &drainSimulatorImpl{
-		store:      store,
-		podIndexer: indexer,
-		pdbIndexer: indexer,
-		client:     client,
-		podFilter:  podFilter,
+		store:         store,
+		podIndexer:    indexer,
+		pdbIndexer:    indexer,
+		client:        client,
+		skipPodFilter: skipPodFilter,
 
 		podResultCache: utils.NewTTLCache[simulationResult](3*time.Minute, 10*time.Second),
 	}
@@ -90,7 +89,7 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 		return res.result, res.reason
 	}
 
-	passes, _, err := sim.podFilter(*pod)
+	passes, _, err := sim.skipPodFilter(*pod)
 	if err != nil {
 		return false, err
 	}
