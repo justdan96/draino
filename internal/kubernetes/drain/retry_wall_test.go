@@ -62,9 +62,7 @@ func TestRetryWall(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			// setup everything
 			fakeClient := fake.NewFakeClient(tt.Node)
-			retryWall := NewRetryWall(fakeClient, logr.Discard())
-			retryWall.RegisterRetryStrategies(tt.Strategy)
-			retryWall.SelectDefaultStrategy(tt.Strategy.GetName())
+			retryWall := NewRetryWall(fakeClient, logr.Discard(), tt.Strategy)
 
 			// make sure that the node will have no delay in the beginning
 			duration, canRetry, err := retryWall.GetDelay(tt.Node)
