@@ -19,7 +19,7 @@ type RetryWall interface {
 	RegisterRetryStrategies(...RetryStrategy)
 	// GetDelay will return a delay to be respected since the last drain try
 	GetDelay(*corev1.Node) (delay time.Duration)
-	// NoteDrainFailure will increase the retry-cont on the nde by one
+	// NoteDrainFailure will increase the retry-cont on the node by one
 	NoteDrainFailure(*corev1.Node) error
 	// ResetRetryCount will reset the retry count of the given node to zero
 	ResetRetryCount(*corev1.Node) error

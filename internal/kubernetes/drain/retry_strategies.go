@@ -83,7 +83,7 @@ var _ RetryStrategy = &NodeAnnotationRetryStrategy{}
 func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrategy) (strategy RetryStrategy, useDefault bool, funcErr error) {
 	funcErr = nil
 	useDefault = true
-	nodeRetryStrat := &NodeAnnotationRetryStrategy{DefaultStrategy: defaultStrategy}
+	nodeRetryStrategy := &NodeAnnotationRetryStrategy{DefaultStrategy: defaultStrategy}
 
 	attempts, useDefault, err := kubernetes.GetNodeRetryMaxAttempt(node)
 	if err != nil {
@@ -91,7 +91,7 @@ func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrate
 	} else if !useDefault {
 		useDefault = false
 		alertThreashold := int(attempts)
-		nodeRetryStrat.AlertThreashold = &alertThreashold
+		nodeRetryStrategy.AlertThreashold = &alertThreashold
 	}
 
 	if val, exist := node.Annotations[kubernetes.CustomRetryBackoffDelayAnnotation]; exist {
@@ -100,11 +100,11 @@ func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrate
 			funcErr = err
 		} else {
 			useDefault = false
-			nodeRetryStrat.Delay = &durationValue
+			nodeRetryStrategy.Delay = &durationValue
 		}
 	}
 
-	strategy = nodeRetryStrat
+	strategy = nodeRetryStrategy
 	return
 }
 
