@@ -13,14 +13,14 @@ type RetryStrategy interface {
 	GetName() string
 	// GetDelay will return a delay based on the given retry count
 	GetDelay(retryCount int) time.Duration
-	// GetMaxRetries will return the amount of accepted retries
-	GetMaxRetries() int
+	// GetAlertThreashold will return the amount of accepted retries
+	GetAlertThreashold() int
 }
 
 // StaticRetryStrategy is a very simple strategy, which always returns the same delay
 type StaticRetryStrategy struct {
-	MaxRetries int
-	Delay      time.Duration
+	AlertThreashold int
+	Delay           time.Duration
 }
 
 var _ RetryStrategy = &StaticRetryStrategy{}
@@ -33,8 +33,8 @@ func (strategy *StaticRetryStrategy) GetDelay(_ int) time.Duration {
 	return strategy.Delay
 }
 
-func (strategy *StaticRetryStrategy) GetMaxRetries() int {
-	return strategy.MaxRetries
+func (strategy *StaticRetryStrategy) GetAlertThreashold() int {
+	return strategy.AlertThreashold
 }
 
 // ExponentialRetryStrategy is using the exponential backoff algorithm
@@ -43,8 +43,8 @@ func (strategy *StaticRetryStrategy) GetMaxRetries() int {
 // retry 2 -> 2 delay
 // Retry 3 -> 4 delay
 type ExponentialRetryStrategy struct {
-	MaxRetries int
-	Delay      time.Duration
+	AlertThreashold int
+	Delay           time.Duration
 }
 
 var _ RetryStrategy = &ExponentialRetryStrategy{}
@@ -65,15 +65,15 @@ func (strategy *ExponentialRetryStrategy) GetDelay(retryCount int) time.Duration
 	return time.Duration(exponent) * strategy.Delay
 }
 
-func (strategy *ExponentialRetryStrategy) GetMaxRetries() int {
-	return strategy.MaxRetries
+func (strategy *ExponentialRetryStrategy) GetAlertThreashold() int {
+	return strategy.AlertThreashold
 }
 
 // NodeAnnotationRetryStrategy is parsing specific node annotations and using their values to take delay decisions.
 // It will return useDefault=true if none of the annotations was set.
 // If only one annotation is set it will use the given default strategy as fallback for the others
 type NodeAnnotationRetryStrategy struct {
-	MaxRetries      *int
+	AlertThreashold *int
 	Delay           *time.Duration
 	DefaultStrategy RetryStrategy
 }
@@ -90,8 +90,8 @@ func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrate
 		funcErr = err
 	} else if !useDefault {
 		useDefault = false
-		maxRetries := int(attempts)
-		nodeRetryStrat.MaxRetries = &maxRetries
+		alertThreashold := int(attempts)
+		nodeRetryStrat.AlertThreashold = &alertThreashold
 	}
 
 	if val, exist := node.Annotations[kubernetes.CustomRetryBackoffDelayAnnotation]; exist {
@@ -119,9 +119,9 @@ func (strategy *NodeAnnotationRetryStrategy) GetDelay(retries int) time.Duration
 	return *strategy.Delay
 }
 
-func (strategy *NodeAnnotationRetryStrategy) GetMaxRetries() int {
-	if strategy.MaxRetries == nil {
-		return strategy.DefaultStrategy.GetMaxRetries()
+func (strategy *NodeAnnotationRetryStrategy) GetAlertThreashold() int {
+	if strategy.AlertThreashold == nil {
+		return strategy.DefaultStrategy.GetAlertThreashold()
 	}
-	return *strategy.MaxRetries
+	return *strategy.AlertThreashold
 }

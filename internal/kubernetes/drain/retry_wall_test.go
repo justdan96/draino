@@ -27,27 +27,27 @@ func TestRetryWall(t *testing.T) {
 			Name: "Should properly set retry count annotation on node",
 			// in a unit test, jsonpatch needs a default annotations map, which is not empty
 			Node:         &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
-			Strategy:     &StaticRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			Strategy:     &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			FailureCount: 2,
 		},
 		{
 			Name: "Should properly calculate retry delay for node",
 			// in a unit test, jsonpatch needs a default annotations map, which is not empty
 			Node:         &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
-			Strategy:     &ExponentialRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			Strategy:     &ExponentialRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			FailureCount: 3,
 		},
 		{
 			Name:          "Should not return any delay if there was no failure",
 			Node:          &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{RetryWallCountAnnotation: "0"}}},
-			Strategy:      &ExponentialRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			Strategy:      &ExponentialRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			ExpectedDelay: durationPtr(time.Duration(0)),
 			FailureCount:  0,
 		},
 		{
 			Name:          "Should deny new retry as max number is reached",
 			Node:          &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
-			Strategy:      &StaticRetryStrategy{MaxRetries: 4},
+			Strategy:      &StaticRetryStrategy{AlertThreashold: 4},
 			ExpectedDelay: durationPtr(time.Duration(0)),
 			FailureCount:  5,
 		},

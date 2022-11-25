@@ -79,8 +79,8 @@ func (wall *retryWallImpl) GetDelay(node *corev1.Node) time.Duration {
 	}
 
 	strategy := wall.getStrategyFromNode(node)
-	if retries >= strategy.GetMaxRetries() {
-		wall.logger.Info("retry wall is hitting limit for node", "node_name", node.GetName(), "retry_strategy", strategy.GetName(), "retries", retries, "max_retries", strategy.GetMaxRetries())
+	if retries >= strategy.GetAlertThreashold() {
+		wall.logger.Info("retry wall is hitting limit for node", "node_name", node.GetName(), "retry_strategy", strategy.GetName(), "retries", retries, "max_retries", strategy.GetAlertThreashold())
 	}
 
 	return strategy.GetDelay(retries)

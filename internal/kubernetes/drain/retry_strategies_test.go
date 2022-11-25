@@ -51,7 +51,7 @@ func TestExponentialRetryStrategy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			strategy := &ExponentialRetryStrategy{MaxRetries: 10, Delay: tt.BaseDelay}
+			strategy := &ExponentialRetryStrategy{AlertThreashold: 10, Delay: tt.BaseDelay}
 			assert.Equal(t, tt.ExpectedDelay, strategy.GetDelay(tt.Retries))
 		})
 	}
@@ -71,7 +71,7 @@ func TestNodeAnnotationRetryStrategy(t *testing.T) {
 		{
 			Name:            "Shloud use max retries from node",
 			Node:            &corev1.Node{ObjectMeta: v1.ObjectMeta{Annotations: map[string]string{kubernetes.CustomRetryMaxAttemptAnnotation: "5"}}},
-			DefaultStrategy: &StaticRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			DefaultStrategy: &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			ShoulUseDefault: false,
 			ExpectedRetries: 5,
 			ExpectedDelay:   time.Minute,
@@ -79,7 +79,7 @@ func TestNodeAnnotationRetryStrategy(t *testing.T) {
 		{
 			Name:            "Shloud use retry delay from node",
 			Node:            &corev1.Node{ObjectMeta: v1.ObjectMeta{Annotations: map[string]string{kubernetes.CustomRetryBackoffDelayAnnotation: "10s"}}},
-			DefaultStrategy: &StaticRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			DefaultStrategy: &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			ShoulUseDefault: false,
 			ExpectedRetries: 10,
 			ExpectedDelay:   10 * time.Second,
@@ -90,7 +90,7 @@ func TestNodeAnnotationRetryStrategy(t *testing.T) {
 				kubernetes.CustomRetryBackoffDelayAnnotation: "10s",
 				kubernetes.CustomRetryMaxAttemptAnnotation:   "5",
 			}}},
-			DefaultStrategy: &StaticRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			DefaultStrategy: &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			ShoulUseDefault: false,
 			ExpectedRetries: 5,
 			ExpectedDelay:   10 * time.Second,
@@ -98,7 +98,7 @@ func TestNodeAnnotationRetryStrategy(t *testing.T) {
 		{
 			Name:              "Shloud use default retry delay if node annotation is not parsable",
 			Node:              &corev1.Node{ObjectMeta: v1.ObjectMeta{Annotations: map[string]string{kubernetes.CustomRetryBackoffDelayAnnotation: "10seconds"}}},
-			DefaultStrategy:   &StaticRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			DefaultStrategy:   &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			ShoulUseDefault:   true,
 			ShouldReturnError: true,
 			ExpectedRetries:   10,
@@ -107,7 +107,7 @@ func TestNodeAnnotationRetryStrategy(t *testing.T) {
 		{
 			Name:              "Shloud use default if no annoation is set",
 			Node:              &corev1.Node{ObjectMeta: v1.ObjectMeta{Annotations: map[string]string{"foo": "bar"}}},
-			DefaultStrategy:   &StaticRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			DefaultStrategy:   &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			ShoulUseDefault:   true,
 			ShouldReturnError: false,
 			ExpectedRetries:   10,
@@ -119,7 +119,7 @@ func TestNodeAnnotationRetryStrategy(t *testing.T) {
 				kubernetes.CustomRetryBackoffDelayAnnotation: "10seconds",
 				kubernetes.CustomRetryMaxAttemptAnnotation:   "5",
 			}}},
-			DefaultStrategy:   &StaticRetryStrategy{Delay: time.Minute, MaxRetries: 10},
+			DefaultStrategy:   &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
 			ShoulUseDefault:   false,
 			ShouldReturnError: true,
 			ExpectedRetries:   5,
@@ -138,7 +138,7 @@ func TestNodeAnnotationRetryStrategy(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			assert.Equal(t, strategy.GetMaxRetries(), tt.ExpectedRetries)
+			assert.Equal(t, strategy.GetAlertThreashold(), tt.ExpectedRetries)
 			assert.Equal(t, strategy.GetDelay(1), tt.ExpectedDelay)
 		})
 	}
