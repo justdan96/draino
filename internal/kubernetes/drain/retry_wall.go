@@ -15,8 +15,6 @@ import (
 const RetryWallCountAnnotation = "draino/retry-attempt"
 
 type RetryWall interface {
-	// RegisterRetryStrategies will register the given list of strategies to be used by the nodes
-	RegisterRetryStrategies(...RetryStrategy)
 	// GetDelay will return a delay to be respected since the last drain try
 	GetDelay(*corev1.Node) (delay time.Duration)
 	// NoteDrainFailure will increase the retry-cont on the node by one
