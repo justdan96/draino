@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/DataDog/compute-go/kubeclient"
+	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -55,7 +57,6 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
-	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	drainoklog "github.com/planetlabs/draino/internal/kubernetes/klog"
 )
 
@@ -73,6 +74,22 @@ func main() {
 	defer tracer.Stop()
 	mux := httptrace.NewServeMux()
 	go http.ListenAndServe("localhost:8085", mux) // for go profiler
+
+	// Read application flags
+	options, fs := optionsFromFlags()
+	config := &kubeclient.Config{}
+	kubeclient.BindConfigToFlags(config, fs)
+
+	fmt.Println(os.Args[1:])
+
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		fmt.Printf("error getting arguments: %v\n", err)
+		os.Exit(1)
+	}
+
+	if errOptions := options.Validate(); errOptions != nil {
+		panic(errOptions)
+	}
 
 	var (
 		nodesCordoned = &view.View{
@@ -141,10 +158,6 @@ func main() {
 	kingpin.FatalIfError(err, "cannot export metrics")
 	view.RegisterExporter(p)
 
-	// Read application flags
-	options, _ := optionsFromFlags()
-	options.Validate()
-
 	log, err := zap.NewProduction()
 	if options.debug {
 		log, err = zap.NewDevelopment()
@@ -166,12 +179,10 @@ func main() {
 		kingpin.FatalIfError(kubernetes.Await(web), "error serving")
 	}()
 
-	c, err := kubernetes.BuildConfigFromFlags(options.apiserver, options.kubecfg)
+	err = k8sclient.DecorateWithRateLimiter(config, "default")
+	c, err := kubeclient.NewKubeConfig(config)
 	kingpin.FatalIfError(err, "cannot create Kubernetes client configuration")
 
-	c.QPS = options.k8sClientQPS
-	c.Burst = options.k8sClientBurst
-	err = k8sclient.DecorateWithRateLimiter(c, "default")
 	kingpin.FatalIfError(err, "failed to decorate kubernetes clientset config")
 
 	cs, err := client.NewForConfig(c)

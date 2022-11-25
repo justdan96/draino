@@ -72,9 +72,9 @@ func ParseConditions(conditions []string) ([]SuppliedCondition, error) {
 		ts := strings.SplitN(c, "=", 2)
 		if len(ts) != 2 {
 			// Keep backward compatibility
-			ts = []string{c, "True,0s"}
+			ts = []string{c, "True;0s"}
 		}
-		sm := strings.SplitN(ts[1], ",", 2)
+		sm := strings.SplitN(ts[1], ";", 2)
 		duration, err := time.ParseDuration(sm[1])
 		if err != nil {
 			return nil, err
