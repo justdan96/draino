@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -13,15 +14,27 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const RetryWallConditionType corev1.NodeConditionType = "DrainFailure"
+const (
+	// RetryWallConditionType the condition type used to save the drain failure count
+	RetryWallConditionType corev1.NodeConditionType = "DrainFailure"
+	// retryConditionMsgSeparator the separator used in the condition message to separate the count from the message
+	retryConditionMsgSeparator string = "|"
+)
+
+// TimeDefault is used as default if there was no retry set
+var TimeDefault = time.Now().Add(-1 * 24 * time.Hour)
 
 type RetryWall interface {
-	// GetDelay will return a delay to be respected since the last drain try
-	GetDelay(*corev1.Node) (delay time.Duration)
-	// NoteDrainFailure will increase the retry-cont on the node by one
-	NoteDrainFailure(*corev1.Node) error
+	// SetNewRetryWallTimestamp increases the retry count on the given node with the given string
+	// now is used for last heartbeat timestamp and should usually be time.Now()
+	SetNewRetryWallTimestamp(ctx context.Context, node *corev1.Node, reason string, now time.Time) error
+	// GetRetryWallTimestamp returns the next time the given node should be retried
+	// If there was no drain failure yet, it will return a timestamp in the past.
+	GetRetryWallTimestamp(*corev1.Node) time.Time
+	// GetDrainRetryAttemptsCount returns the amount of drain failures recorded for the given node
+	GetDrainRetryAttemptsCount(*corev1.Node) int
 	// ResetRetryCount will reset the retry count of the given node to zero
-	ResetRetryCount(*corev1.Node) error
+	ResetRetryCount(context.Context, *corev1.Node) error
 }
 
 type retryWallImpl struct {
@@ -47,12 +60,12 @@ func NewRetryWall(client client.Client, logger logr.Logger, strategies ...RetryS
 		logger:     logger.WithName("retry-wall"),
 		strategies: map[string]RetryStrategy{},
 	}
-	wall.RegisterRetryStrategies(strategies...)
+	wall.registerRetryStrategies(strategies...)
 
 	return wall, nil
 }
 
-func (wall *retryWallImpl) RegisterRetryStrategies(strategies ...RetryStrategy) {
+func (wall *retryWallImpl) registerRetryStrategies(strategies ...RetryStrategy) {
 	if len(strategies) == 0 {
 		return
 	}
@@ -64,17 +77,27 @@ func (wall *retryWallImpl) RegisterRetryStrategies(strategies ...RetryStrategy) 
 	}
 }
 
-func (wall *retryWallImpl) GetDelay(node *corev1.Node) time.Duration {
-	retries, err := wall.getRetryCount(node)
+func (wall *retryWallImpl) SetNewRetryWallTimestamp(ctx context.Context, node *corev1.Node, reason string, now time.Time) error {
+	retryCount, _, err := wall.getRetry(node)
 	if err != nil {
-		// TODO does this make sense? Theoretically getRetryCount only fails if the number in the annotation is not parseable.
-		wall.logger.Error(err, "unable to get retry wall count from node", "node", node.GetName(), "annotations", node.GetAnnotations())
-		retries = 0
+		wall.logger.Error(err, "unable to get retry wall count from node", "node", node.GetName(), "conditions", node.Status.Conditions)
+		retryCount = 0
+	}
+
+	retryCount += 1
+	return wall.patchRetryCountOnNode(ctx, node, retryCount, reason, now)
+}
+
+func (wall *retryWallImpl) GetRetryWallTimestamp(node *corev1.Node) time.Time {
+	retries, lastHeartbeatTime, err := wall.getRetry(node)
+	if err != nil {
+		wall.logger.Error(err, "unable to get retry wall information from node", "node", node.GetName(), "conditions", node.Status.Conditions)
+		return TimeDefault
 	}
 
 	// if this is the first try, we should not inject any delay
 	if retries == 0 {
-		return 0
+		return TimeDefault
 	}
 
 	strategy := wall.getStrategyFromNode(node)
@@ -82,7 +105,17 @@ func (wall *retryWallImpl) GetDelay(node *corev1.Node) time.Duration {
 		wall.logger.Info("retry wall is hitting limit for node", "node_name", node.GetName(), "retry_strategy", strategy.GetName(), "retries", retries, "max_retries", strategy.GetAlertThreashold())
 	}
 
-	return strategy.GetDelay(retries)
+	delay := strategy.GetDelay(retries)
+	return lastHeartbeatTime.Add(delay)
+}
+
+func (wall *retryWallImpl) GetDrainRetryAttemptsCount(node *corev1.Node) int {
+	retryCount, _, err := wall.getRetry(node)
+	if err != nil {
+		wall.logger.Error(err, "unable to get retry wall count from node", "node", node.GetName(), "conditions", node.Status.Conditions)
+		return 0
+	}
+	return retryCount
 }
 
 func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) RetryStrategy {
@@ -97,39 +130,33 @@ func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) RetryStrategy 
 	return wall.defaultStrategy
 }
 
-func (wall *retryWallImpl) NoteDrainFailure(node *corev1.Node) error {
-	retryCount, err := wall.getRetryCount(node)
-	if err != nil {
-		wall.logger.Error(err, "unable to get retry wall count from node", "node", node.GetName(), "annotations", node.GetAnnotations())
-		retryCount = 0
-	}
-
-	retryCount += 1
-	return wall.patchRetryCountOnNode(node, retryCount)
-}
-
-func (wall *retryWallImpl) ResetRetryCount(node *corev1.Node) error {
+func (wall *retryWallImpl) ResetRetryCount(ctx context.Context, node *corev1.Node) error {
 	return wall.
 		client.
 		Status().
-		Patch(context.Background(), node, &NodeConditionPatch{ConditionType: RetryWallConditionType, Operator: PatchOpRemove})
+		Patch(ctx, node, &NodeConditionPatch{ConditionType: RetryWallConditionType, Operator: PatchOpRemove})
 }
 
-func (wall *retryWallImpl) getRetryCount(node *corev1.Node) (int, error) {
+func (wall *retryWallImpl) getRetry(node *corev1.Node) (int, time.Time, error) {
 	_, condition, found := utils.FindNodeCondition(RetryWallConditionType, node)
 	if !found {
-		return 0, nil
+		return 0, TimeDefault, nil
 	}
 
-	val, err := strconv.ParseInt(condition.Message, 10, 32)
+	split := strings.Split(condition.Message, retryConditionMsgSeparator)
+	if len(split) != 2 {
+		return 0, TimeDefault, fmt.Errorf("condition message is poorly configured")
+	}
+
+	val, err := strconv.ParseInt(split[0], 10, 32)
 	if err != nil {
-		return 0, err
+		return 0, TimeDefault, err
 	}
 
-	return int(val), nil
+	return int(val), condition.LastHeartbeatTime.Time, nil
 }
 
-func (wall *retryWallImpl) patchRetryCountOnNode(node *corev1.Node, retryCount int) error {
+func (wall *retryWallImpl) patchRetryCountOnNode(ctx context.Context, node *corev1.Node, retryCount int, reason string, now time.Time) error {
 	operator := PatchOpReplace
 	pos, _, found := utils.FindNodeCondition(RetryWallConditionType, node)
 	if !found {
@@ -139,18 +166,16 @@ func (wall *retryWallImpl) patchRetryCountOnNode(node *corev1.Node, retryCount i
 		node.Status.Conditions = append(node.Status.Conditions, corev1.NodeCondition{
 			Type:               RetryWallConditionType,
 			Status:             corev1.ConditionTrue,
-			LastTransitionTime: metav1.NewTime(time.Now()),
-			LastHeartbeatTime:  metav1.NewTime(time.Now()),
+			LastTransitionTime: metav1.NewTime(now),
 			Reason:             "DrainRetryWall",
-			Message:            fmt.Sprintf("%d", retryCount),
 		})
 	}
 
-	node.Status.Conditions[pos].LastHeartbeatTime = metav1.NewTime(time.Now())
-	node.Status.Conditions[pos].Message = fmt.Sprintf("%d", retryCount)
+	node.Status.Conditions[pos].LastHeartbeatTime = metav1.NewTime(now)
+	node.Status.Conditions[pos].Message = fmt.Sprintf("%d%s%s", retryCount, retryConditionMsgSeparator, reason)
 
 	return wall.
 		client.
 		Status().
-		Patch(context.Background(), node, &NodeConditionPatch{ConditionType: RetryWallConditionType, Operator: operator})
+		Patch(ctx, node, &NodeConditionPatch{ConditionType: RetryWallConditionType, Operator: operator})
 }
