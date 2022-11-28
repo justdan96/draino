@@ -499,7 +499,7 @@ func (h *DrainingResourceEventHandler) checkCordonFilters(ctx context.Context, n
 				tags, _ := tag.New(tags, tag.Upsert(TagReason, reason))
 				StatRecordForEachCondition(tags, n, h.globalConfig.SuppliedConditions, MeasureSkippedCordon.M(1))
 				h.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, eventReasonCordonSkip, "Pod %s/%s is not in eviction scope", pod.Namespace, pod.Name)
-				h.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, eventReasonCordonSkip, "Pod is blocking cordon/drain for node %s", n.Name)
+				h.eventRecorder.PodEventf(ctx, pod, n, core.EventTypeWarning, eventReasonCordonSkip, "Pod is blocking cordon/drain for node %s", n.Name)
 				h.logger.Debug("Cordon filter triggered", zap.String("node", n.Name), zap.String("pod", pod.Name))
 				return false
 			}
