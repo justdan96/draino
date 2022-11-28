@@ -192,7 +192,7 @@ func (d *drainBufferChecker) getNodeDrainBufferConfiguration(ctx context.Context
 func (d *drainBufferChecker) getPodDrainBufferConfiguration(ctx context.Context, pod *v1.Pod) (time.Duration, bool) {
 	podDrainBuffer, found, err := d.getDrainBufferConfigurationFromAnnotation(pod)
 	if err != nil {
-		d.eventRecorder.PodEventf(ctx, pod, v1.EventTypeWarning, DrainBufferMisconfigured, "the value for "+kubernetes.CustomDrainBufferAnnotation+" cannot be parsed as a duration: %#v", err)
+		d.eventRecorder.PodEventf(ctx, pod, nil, v1.EventTypeWarning, DrainBufferMisconfigured, "the value for "+kubernetes.CustomDrainBufferAnnotation+" cannot be parsed as a duration: %#v", err)
 	}
 	return podDrainBuffer, found
 }

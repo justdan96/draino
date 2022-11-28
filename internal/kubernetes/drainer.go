@@ -666,15 +666,15 @@ func (d *APICordonDrainer) Drain(ctx context.Context, node *core.Node) error {
 		pod := pods[i]
 		go func() {
 			d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod %s/%s to drain node", pod.Namespace, pod.Name)
-			d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod to drain node %s", n.Name)
+			d.eventRecorder.PodEventf(ctx, pod, n, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod to drain node %s", n.Name)
 			if err := d.evict(ctx, n, pod, abort); err != nil {
 				d.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed for pod %s/%s: %v", pod.Namespace, pod.Name, err)
-				d.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed: %v", err)
+				d.eventRecorder.PodEventf(ctx, pod, n, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed: %v", err)
 				errs <- fmt.Errorf("cannot evict pod %s/%s: %w", pod.GetNamespace(), pod.GetName(), err)
 				return
 			}
 			d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod %s/%s evicted from node", pod.Namespace, pod.Name)
-			d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod evicted from node %s", n.Name)
+			d.eventRecorder.PodEventf(ctx, pod, n, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod evicted from node %s", n.Name)
 			errs <- nil // the for range pods below expects to receive one value per pod from the errs channel
 		}()
 	}
@@ -933,7 +933,7 @@ func (d *APICordonDrainer) evictionSequence(ctx context.Context, node *core.Node
 			// disruption budget.
 			case apierrors.IsTooManyRequests(err):
 				d.eventRecorder.NodeEventf(ctx, node, core.EventTypeWarning, eventReasonEvictionAttemptFailed, "Attempt to evict pod %s/%s failed: %v", pod.Namespace, pod.Name, err)
-				d.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, eventReasonEvictionAttemptFailed, "Attempt to evict pod from node %s failed: %v", node.Name, err)
+				d.eventRecorder.PodEventf(ctx, pod, node, core.EventTypeWarning, eventReasonEvictionAttemptFailed, "Attempt to evict pod from node %s failed: %v", node.Name, err)
 				waitTime := backoff.Step()
 				if statErr, ok := err.(apierrors.APIStatus); ok && statErr.Status().Details != nil {
 					if proposedWaitSeconds := statErr.Status().Details.RetryAfterSeconds; proposedWaitSeconds > 0 {
@@ -947,7 +947,7 @@ func (d *APICordonDrainer) evictionSequence(ctx context.Context, node *core.Node
 			case apierrors.IsNotFound(err):
 				// the pod is already gone
 				// maybe we still need to perform PVC management
-				err = d.deletePVCAndPV(ctx, pod)
+				err = d.deletePVCAndPV(ctx, pod, node)
 				if err != nil {
 					return VolumeCleanupError{Err: err} // this one is typed because we match it to a failure cause
 				}
@@ -962,7 +962,7 @@ func (d *APICordonDrainer) evictionSequence(ctx context.Context, node *core.Node
 				if err != nil {
 					return fmt.Errorf("cannot confirm pod was deleted: %w", err)
 				}
-				err = d.deletePVCAndPV(ctx, pod)
+				err = d.deletePVCAndPV(ctx, pod, node)
 				if err != nil {
 					return VolumeCleanupError{Err: err} // this one is typed because we match it to a failure cause
 				}
@@ -995,19 +995,19 @@ func (d *APICordonDrainer) awaitDeletion(ctx context.Context, pod *core.Pod, tim
 	return nil
 }
 
-func (d *APICordonDrainer) deletePVCAndPV(ctx context.Context, pod *core.Pod) error {
+func (d *APICordonDrainer) deletePVCAndPV(ctx context.Context, pod *core.Pod, node *core.Node) error {
 	span, ctx := tracer.StartSpanFromContext(ctx, "deletePVCAndPV")
 	defer span.Finish()
 	span.SetTag("pod", pod.GetName())
 
-	pvcDeleted, err := d.deletePVCAssociatedWithStorageClass(ctx, pod)
+	pvcDeleted, err := d.deletePVCAssociatedWithStorageClass(ctx, pod, node)
 	if err != nil {
 		return err
 	}
 
 	// now if the pod is pending because it is missing the PVC and if it is controlled by a statefulset we should delete it to have statefulset controller rebuilding the PVC
 	if len(pvcDeleted) > 0 {
-		if err := d.deletePVAssociatedWithDeletedPVC(ctx, pod, pvcDeleted); err != nil {
+		if err := d.deletePVAssociatedWithDeletedPVC(ctx, pod, node, pvcDeleted); err != nil {
 			return err
 		}
 		for _, pvc := range pvcDeleted {
@@ -1048,7 +1048,7 @@ func (d *APICordonDrainer) podDeleteRetryWaitingForPVC(ctx context.Context, pod 
 	return wait.PollImmediate(DefaultPodDeletePeriodWaitingForPVC, DefaultPVCRecreateTimeout, podDeleteCheckPVCFunc)
 }
 
-func (d *APICordonDrainer) deletePVAssociatedWithDeletedPVC(ctx context.Context, pod *core.Pod, pvcDeleted []*core.PersistentVolumeClaim) error {
+func (d *APICordonDrainer) deletePVAssociatedWithDeletedPVC(ctx context.Context, pod *core.Pod, node *core.Node, pvcDeleted []*core.PersistentVolumeClaim) error {
 	span, ctx := tracer.StartSpanFromContext(ctx, "deletePVAssociatedWithDeletedPVC")
 	defer span.Finish()
 
@@ -1063,7 +1063,7 @@ func (d *APICordonDrainer) deletePVAssociatedWithDeletedPVC(ctx context.Context,
 		}
 
 		d.eventRecorder.PersistentVolumeEventf(ctx, pv, core.EventTypeNormal, "Eviction", fmt.Sprintf("Deletion requested due to association with evicted pvc %s/%s and pod %s/%s", claim.Namespace, claim.Name, pod.Namespace, pod.Name))
-		d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, "Eviction", fmt.Sprintf("Deletion of associated PV %s", pv.Name))
+		d.eventRecorder.PodEventf(ctx, pod, node, core.EventTypeNormal, "Eviction", fmt.Sprintf("Deletion of associated PV %s", pv.Name))
 
 		err = d.c.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, meta.DeleteOptions{})
 		if apierrors.IsNotFound(err) {
@@ -1072,7 +1072,7 @@ func (d *APICordonDrainer) deletePVAssociatedWithDeletedPVC(ctx context.Context,
 		}
 		if err != nil {
 			d.eventRecorder.PersistentVolumeEventf(ctx, pv, core.EventTypeWarning, "EvictionFailure", fmt.Sprintf("Could not delete PV: %v", err))
-			d.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, "EvictionFailure", fmt.Sprintf("Could not delete PV %s: %v", pv.Name, err))
+			d.eventRecorder.PodEventf(ctx, pod, node, core.EventTypeWarning, "EvictionFailure", fmt.Sprintf("Could not delete PV %s: %v", pv.Name, err))
 			return fmt.Errorf("cannot delete pv %s: %w", pv.Name, err)
 		}
 		d.l.Info("deleting pv", zap.String("pv", pv.Name))
@@ -1103,7 +1103,7 @@ func (d *APICordonDrainer) awaitPVDeletion(ctx context.Context, pv *core.Persist
 
 // deletePVCAssociatedWithStorageClass takes care of deleting the PVCs associated with the annotated classes
 // returns the list of deleted PVCs and the first error encountered if any
-func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(ctx context.Context, pod *core.Pod) ([]*core.PersistentVolumeClaim, error) {
+func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(ctx context.Context, pod *core.Pod, node *core.Node) ([]*core.PersistentVolumeClaim, error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, "deletePVCAssociatedWithStorageClass")
 	defer span.Finish()
 
@@ -1139,7 +1139,7 @@ func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(ctx context.Conte
 			continue
 		}
 
-		d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, "Eviction", fmt.Sprintf("Deletion of associated PVC %s/%s", pvc.Namespace, pvc.Name))
+		d.eventRecorder.PodEventf(ctx, pod, node, core.EventTypeNormal, "Eviction", fmt.Sprintf("Deletion of associated PVC %s/%s", pvc.Namespace, pvc.Name))
 		d.eventRecorder.PersistentVolumeClaimEventf(ctx, pvc, core.EventTypeNormal, "Eviction", fmt.Sprintf("Deletion requested due to association with evicted pod %s/%s", pod.Namespace, pod.Name))
 
 		err = d.c.CoreV1().PersistentVolumeClaims(pod.GetNamespace()).Delete(ctx, v.PersistentVolumeClaim.ClaimName, meta.DeleteOptions{})
@@ -1148,7 +1148,7 @@ func (d *APICordonDrainer) deletePVCAssociatedWithStorageClass(ctx context.Conte
 			continue // This PVC was already deleted
 		}
 		if err != nil {
-			d.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, "EvictionFailure", fmt.Sprintf("Could not delete PVC %s/%s: %v", pvc.Namespace, pvc.Name, err))
+			d.eventRecorder.PodEventf(ctx, pod, node, core.EventTypeWarning, "EvictionFailure", fmt.Sprintf("Could not delete PVC %s/%s: %v", pvc.Namespace, pvc.Name, err))
 			d.eventRecorder.PersistentVolumeClaimEventf(ctx, pvc, core.EventTypeWarning, "EvictionFailure", fmt.Sprintf("Could not delete: %v", err))
 			return deletedPVCs, fmt.Errorf("cannot delete pvc %s/%s: %w", pod.GetNamespace(), v.PersistentVolumeClaim.ClaimName, err)
 		}
