@@ -120,14 +120,12 @@ func (wall *retryWallImpl) GetDrainRetryAttemptsCount(node *corev1.Node) int {
 
 func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) RetryStrategy {
 	// TODO: here we can check the node annotations and find the related strategy
-	// TODO log error as event?
-	nodeAnnotationStrategy, useDefault, err := BuildNodeAnnotationRetryStrategy(node, wall.defaultStrategy)
-	// for now we are using the default strategy in case of an error
-	if err == nil && !useDefault {
-		return nodeAnnotationStrategy
+	nodeAnnotationStrategy, err := BuildNodeAnnotationRetryStrategy(node, wall.defaultStrategy)
+	if err != nil {
+		wall.logger.Error(err, "node contains invalid retry wall configruation", "node_name", node.GetName(), "annotations", node.GetAnnotations())
 	}
 
-	return wall.defaultStrategy
+	return nodeAnnotationStrategy
 }
 
 func (wall *retryWallImpl) ResetRetryCount(ctx context.Context, node *corev1.Node) error {

@@ -80,16 +80,13 @@ type NodeAnnotationRetryStrategy struct {
 
 var _ RetryStrategy = &NodeAnnotationRetryStrategy{}
 
-func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrategy) (strategy RetryStrategy, useDefault bool, funcErr error) {
-	funcErr = nil
-	useDefault = true
+func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrategy) (strategy RetryStrategy, funcErr error) {
 	nodeRetryStrategy := &NodeAnnotationRetryStrategy{DefaultStrategy: defaultStrategy}
 
 	attempts, useDefault, err := kubernetes.GetNodeRetryMaxAttempt(node)
 	if err != nil {
 		funcErr = err
 	} else if !useDefault {
-		useDefault = false
 		alertThreashold := int(attempts)
 		nodeRetryStrategy.AlertThreashold = &alertThreashold
 	}
@@ -99,7 +96,6 @@ func BuildNodeAnnotationRetryStrategy(node *v1.Node, defaultStrategy RetryStrate
 		if err != nil {
 			funcErr = err
 		} else {
-			useDefault = false
 			nodeRetryStrategy.Delay = &durationValue
 		}
 	}
