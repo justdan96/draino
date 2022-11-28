@@ -3,40 +3,53 @@ package drain
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
+	"github.com/planetlabs/draino/internal/kubernetes/utils"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// as the patch path is using slashes, we have to escape the slashes in our label with '~1'
-var RetryCountPatchPath = fmt.Sprintf("/metadata/annotations/%s", strings.ReplaceAll(RetryWallCountAnnotation, "/", "~1"))
+const (
+	PatchOpAdd     = "add"
+	PatchOpReplace = "replace"
+	PatchOpRemove  = "remove"
+)
 
-type JSONPatchValue struct {
+type JSONPatchValue[T any] struct {
 	Op    string `json:"op"`
 	Path  string `json:"path"`
-	Value string `json:"value"`
+	Value T      `json:"value"`
 }
 
-type RetryCountPatch struct{}
+type NodeConditionPatch struct {
+	ConditionType corev1.NodeConditionType
+	// Operator add, replace or remove
+	Operator string
+}
 
-var _ client.Patch = &RetryCountPatch{}
+var _ client.Patch = &NodeConditionPatch{}
 
-func (p *RetryCountPatch) Type() types.PatchType {
+func (_ *NodeConditionPatch) Type() types.PatchType {
 	return types.JSONPatchType
 }
 
-func (p *RetryCountPatch) Data(obj client.Object) ([]byte, error) {
-	val, ok := obj.GetAnnotations()[RetryWallCountAnnotation]
+func (self *NodeConditionPatch) Data(obj client.Object) ([]byte, error) {
+	node, ok := obj.(*corev1.Node)
 	if !ok {
-		return []byte{}, fmt.Errorf("object does not have retry count annotation attached")
+		return nil, fmt.Errorf("cannot parse object into node")
 	}
 
-	jsonPatch := JSONPatchValue{
-		Op:    "replace",
-		Path:  RetryCountPatchPath,
-		Value: val,
+	position, condition, found := utils.FindNodeCondition(self.ConditionType, node)
+	if !found {
+		return nil, fmt.Errorf("cannot find condition on node")
 	}
 
-	return json.Marshal([]JSONPatchValue{jsonPatch})
+	patch := JSONPatchValue[corev1.NodeCondition]{
+		Op:    self.Operator,
+		Path:  fmt.Sprintf("/status/conditions/%d", position),
+		Value: condition,
+	}
+
+	return json.Marshal([]JSONPatchValue[corev1.NodeCondition]{patch})
 }

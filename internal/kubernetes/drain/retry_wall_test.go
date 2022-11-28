@@ -2,11 +2,12 @@ package drain
 
 import (
 	"context"
-	"strconv"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,93 +17,106 @@ import (
 
 func TestRetryWall(t *testing.T) {
 	tests := []struct {
-		Name            string
-		Node            *corev1.Node
-		Strategy        RetryStrategy
-		DefaultStrategy string
-		ExpectedDelay   *time.Duration
-		FailureCount    int64
+		Name          string
+		Node          *corev1.Node
+		Strategy      RetryStrategy
+		ExpectedDelay *time.Duration
+		Failures      int
 	}{
 		{
 			Name: "Should properly set retry count annotation on node",
-			// in a unit test, jsonpatch needs a default annotations map, which is not empty
-			Node:         &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
-			Strategy:     &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
-			FailureCount: 2,
+			Node: &corev1.Node{
+				ObjectMeta: v1.ObjectMeta{Name: "foo-node"},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: "test-condition", Status: corev1.ConditionTrue}}},
+			},
+			Strategy: &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
+			Failures: 2,
 		},
 		{
 			Name: "Should properly calculate retry delay for node",
-			// in a unit test, jsonpatch needs a default annotations map, which is not empty
-			Node:         &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
-			Strategy:     &ExponentialRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
-			FailureCount: 3,
+			Node: &corev1.Node{
+				ObjectMeta: v1.ObjectMeta{Name: "foo-node"},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: "test-condition", Status: corev1.ConditionTrue}},
+				},
+			},
+			Strategy: &ExponentialRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
+			Failures: 3,
 		},
 		{
-			Name:          "Should not return any delay if there was no failure",
-			Node:          &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{RetryWallCountAnnotation: "0"}}},
+			Name: "Should not return any delay if there was no failure",
+			Node: &corev1.Node{
+				ObjectMeta: v1.ObjectMeta{Name: "foo-node"},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: RetryWallConditionType, Status: corev1.ConditionTrue, Message: "0"}},
+				},
+			},
 			Strategy:      &ExponentialRetryStrategy{Delay: time.Minute, AlertThreashold: 10},
-			ExpectedDelay: durationPtr(time.Duration(0)),
-			FailureCount:  0,
+			ExpectedDelay: utils.DurationPtr(time.Duration(0)),
+			Failures:      0,
 		},
 		{
-			Name:          "Should deny new retry as max number is reached",
-			Node:          &corev1.Node{ObjectMeta: v1.ObjectMeta{Name: "foo-node", Annotations: map[string]string{"foo": "bar"}}},
-			Strategy:      &StaticRetryStrategy{AlertThreashold: 4},
-			ExpectedDelay: durationPtr(time.Duration(0)),
-			FailureCount:  5,
+			Name: "Should continue with drain attempts even if alert threshold was reached",
+			Node: &corev1.Node{
+				ObjectMeta: v1.ObjectMeta{Name: "foo-node"},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: "test-condition", Status: corev1.ConditionTrue}},
+				},
+			},
+			Strategy: &StaticRetryStrategy{Delay: time.Minute, AlertThreashold: 4},
+			Failures: 5,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
 			// setup everything
-			fakeClient := fake.NewFakeClient(tt.Node)
-			retryWall, err := NewRetryWall(fakeClient, logr.Discard(), tt.Strategy)
-			assert.NoError(t, err)
+			client := fake.NewFakeClient(tt.Node)
+			wall, err := NewRetryWall(client, logr.Discard(), tt.Strategy)
+			assert.NoError(t, err, "cannot create retry wall")
 
 			// make sure that the node will have no delay in the beginning
-			duration := retryWall.GetDelay(tt.Node)
-			assert.Equal(t, time.Duration(0), duration, "There should be no delay in the beginning")
+			delay := wall.GetDelay(tt.Node)
+			assert.Equal(t, time.Duration(0), delay)
 
 			// inject drain failures
-			for i := 0; i < int(tt.FailureCount); i++ {
-				retryWall.NoteDrainFailure(tt.Node)
+			for i := 0; i < tt.Failures; i++ {
+				if err := wall.NoteDrainFailure(tt.Node); err != nil {
+					assert.NoError(t, err, "cannot mark node drain failure")
+				}
 			}
 
 			// get latest version of node
 			var node corev1.Node
-			err = fakeClient.Get(context.Background(), types.NamespacedName{Name: tt.Node.GetName()}, &node)
-			assert.NoError(t, err)
+			err = client.Get(context.Background(), types.NamespacedName{Name: tt.Node.Name}, &node)
+			assert.NoError(t, err, "cannot get node after drain failures")
 
-			// check if patch was applied
-			value, exist := node.GetAnnotations()[RetryWallCountAnnotation]
-			assert.Equal(t, true, exist, "Retry annotation not set on node")
-			intVal, err := strconv.ParseInt(value, 10, 64)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.FailureCount, intVal, "Failure count on node should match expected count")
-
-			// make sure that the result delay is as expected
-			delay := retryWall.GetDelay(&node)
-			expectedDelay := tt.Strategy.GetDelay(int(tt.FailureCount))
+			// check the expected delay
+			delay = wall.GetDelay(&node)
+			expectedDelay := tt.Strategy.GetDelay(tt.Failures)
 			if tt.ExpectedDelay != nil {
 				expectedDelay = *tt.ExpectedDelay
 			}
-			assert.Equal(t, expectedDelay, delay, "retry delay does not match expected result")
+			assert.Equal(t, expectedDelay, delay)
 
-			// check if the counter reset works
-			err = retryWall.ResetRetryCount(&node)
+			// check if the condition was appended
+			pos, condition, found := utils.FindNodeCondition(RetryWallConditionType, &node)
+			assert.True(t, pos >= 0, "position should be bigger than or euqals to 0")
+			assert.True(t, found, "node condition should be found")
+			assert.Equal(t, fmt.Sprintf("%d", tt.Failures), condition.Message, "condition message should have the proper failure count")
+
+			// reset retry counter
+			err = wall.ResetRetryCount(&node)
 			assert.NoError(t, err)
-			err = fakeClient.Get(context.Background(), types.NamespacedName{Name: tt.Node.GetName()}, &node)
+
+			// get latest version of node
+			node = corev1.Node{}
+			err = client.Get(context.Background(), types.NamespacedName{Name: tt.Node.Name}, &node)
 			assert.NoError(t, err)
-			value, exist = node.GetAnnotations()[RetryWallCountAnnotation]
-			assert.Equal(t, true, exist, "Retry annotation not set on node")
-			intVal, err = strconv.ParseInt(value, 10, 64)
-			assert.NoError(t, err)
-			assert.Equal(t, int64(0), intVal, "Failure count on node should match expected count")
+
+			// make sure that the condition got removed
+			_, _, found = utils.FindNodeCondition(RetryWallConditionType, &node)
+			assert.False(t, found)
 		})
 	}
-}
-
-func durationPtr(t time.Duration) *time.Duration {
-	return &t
 }

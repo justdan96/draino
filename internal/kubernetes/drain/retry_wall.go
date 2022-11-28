@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// TODO think about proper annotation name
-const RetryWallCountAnnotation = "draino/retry-attempt"
+const RetryWallConditionType corev1.NodeConditionType = "DrainFailure"
 
 type RetryWall interface {
 	// GetDelay will return a delay to be respected since the last drain try
@@ -108,31 +109,48 @@ func (wall *retryWallImpl) NoteDrainFailure(node *corev1.Node) error {
 }
 
 func (wall *retryWallImpl) ResetRetryCount(node *corev1.Node) error {
-	return wall.patchRetryCountOnNode(node, 0)
+	return wall.
+		client.
+		Status().
+		Patch(context.Background(), node, &NodeConditionPatch{ConditionType: RetryWallConditionType, Operator: PatchOpRemove})
 }
 
 func (wall *retryWallImpl) getRetryCount(node *corev1.Node) (int, error) {
-	annoations := node.GetAnnotations()
-	if annoations == nil {
-		return 0, nil
-	}
-	annotationVal, ok := annoations[RetryWallCountAnnotation]
-	if !ok {
+	_, condition, found := utils.FindNodeCondition(RetryWallConditionType, node)
+	if !found {
 		return 0, nil
 	}
 
-	intVal, err := strconv.ParseInt(annotationVal, 10, 32)
+	val, err := strconv.ParseInt(condition.Message, 10, 32)
 	if err != nil {
 		return 0, err
 	}
 
-	return int(intVal), nil
+	return int(val), nil
 }
 
 func (wall *retryWallImpl) patchRetryCountOnNode(node *corev1.Node, retryCount int) error {
-	if node.GetAnnotations() == nil {
-		node.Annotations = map[string]string{}
+	operator := PatchOpReplace
+	pos, _, found := utils.FindNodeCondition(RetryWallConditionType, node)
+	if !found {
+		operator = PatchOpAdd
+		// we can use the length as the index as the append is done afterwards
+		pos = len(node.Status.Conditions)
+		node.Status.Conditions = append(node.Status.Conditions, corev1.NodeCondition{
+			Type:               RetryWallConditionType,
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+			LastHeartbeatTime:  metav1.NewTime(time.Now()),
+			Reason:             "DrainRetryWall",
+			Message:            fmt.Sprintf("%d", retryCount),
+		})
 	}
-	node.Annotations[RetryWallCountAnnotation] = fmt.Sprintf("%d", retryCount)
-	return wall.client.Patch(context.Background(), node, &RetryCountPatch{})
+
+	node.Status.Conditions[pos].LastHeartbeatTime = metav1.NewTime(time.Now())
+	node.Status.Conditions[pos].Message = fmt.Sprintf("%d", retryCount)
+
+	return wall.
+		client.
+		Status().
+		Patch(context.Background(), node, &NodeConditionPatch{ConditionType: RetryWallConditionType, Operator: operator})
 }
