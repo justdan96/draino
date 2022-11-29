@@ -87,6 +87,7 @@ func CreateNodeSpan(obj *core.Node) tracer.Span {
 	span := tracer.StartSpan(
 		"andy-test",
 		tracer.ServiceName("draino"),
+		tracer.ResourceName("node_drain"),
 		tracer.WithSpanID(generateSpanID("nla-node-drain", string(obj.UID))),
 	)
 
