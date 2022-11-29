@@ -925,7 +925,9 @@ func (d *APICordonDrainer) evictionSequence(ctx context.Context, node *core.Node
 			// doesn't make much sense anyway. However, we still want to wait for their
 			// deletion, which is why we filter here and not in GetPodsToDrain.
 			if pod.DeletionTimestamp == nil {
+				span = CreateNodeSpan(node)
 				err = evictionFunc()
+				span.Finish()
 			}
 			switch {
 			// The eviction API returns 429 Too Many Requests if a pod

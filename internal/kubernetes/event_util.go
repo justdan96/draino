@@ -8,6 +8,8 @@ import (
 
 	core "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
+
+	xxhash_v2 "github.com/cespare/xxhash/v2"
 )
 
 const (
@@ -79,6 +81,26 @@ func (e *eventRecorder) PersistentVolumeEventf(ctx context.Context, obj *core.Pe
 	defer span.Finish()
 
 	e.eventRecorder.Eventf(obj, eventType, reason, messageFmt, args...)
+}
+
+func CreateNodeSpan(obj *core.Node) tracer.Span {
+	span := tracer.StartSpan(
+		"andy-test",
+		tracer.ServiceName("draino"),
+		tracer.WithSpanID(generateSpanID("nla-node-drain", string(obj.UID))),
+	)
+
+	return span
+}
+
+func generateSpanID(prefix string, uid string) uint64 {
+	digest := xxhash_v2.New()
+	// Below methods are specified in both code and documentation to always return "len(s), nil" so we can safely ignore
+	// the error value
+	_, _ = digest.WriteString(prefix)
+	_, _ = digest.WriteString("|")
+	_, _ = digest.WriteString(uid)
+	return digest.Sum64()
 }
 
 func (e *eventRecorder) PersistentVolumeClaimEventf(ctx context.Context, obj *core.PersistentVolumeClaim, eventType, reason, messageFmt string, args ...interface{}) {
