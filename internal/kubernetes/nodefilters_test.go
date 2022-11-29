@@ -432,7 +432,7 @@ func TestParseConditions(t *testing.T) {
 		},
 		{
 			name:       "Mixed",
-			conditions: []string{"Ready", "OutOfDisk=True,10m"},
+			conditions: []string{"Ready", "OutOfDisk=True;10m"},
 			expect: []SuppliedCondition{
 				SuppliedCondition{core.NodeConditionType("Ready"), core.ConditionStatus("True"), time.Duration(0) * time.Second},
 				SuppliedCondition{core.NodeConditionType("OutOfDisk"), core.ConditionStatus("True"), time.Duration(10) * time.Minute},
@@ -440,12 +440,12 @@ func TestParseConditions(t *testing.T) {
 		},
 		{
 			name:       "NewFormat",
-			conditions: []string{"Ready=Unknown,30m"},
+			conditions: []string{"Ready=Unknown;30m"},
 			expect:     []SuppliedCondition{SuppliedCondition{core.NodeConditionType("Ready"), core.ConditionStatus("Unknown"), time.Duration(30) * time.Minute}},
 		},
 		{
 			name:       "FormatError",
-			conditions: []string{"Ready=Unknown,30err"},
+			conditions: []string{"Ready=Unknown;30err"},
 			expect:     nil,
 			expectErr:  true,
 		},

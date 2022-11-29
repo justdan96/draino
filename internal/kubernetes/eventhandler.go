@@ -74,10 +74,17 @@ const (
 	drainRetryFailedAnnotationValue  = "failed"
 	drainRetryRestartAnnotationValue = "restart"
 
-	drainoConditionsAnnotationKey = "draino.planet.com/conditions"
+	drainoConditionsAnnotationKey       = "draino.planet.com/conditions"
+	drainoConditionsAnnotationSeparator = "|" // Must be different than SuppliedConditionDurationSeparator else that would cause parsin problems
 
 	NodeNLAEnableLabelKey = "node-lifecycle.datadoghq.com/enabled"
 )
+
+func init() {
+	if drainoConditionsAnnotationSeparator == SuppliedConditionDurationSeparator {
+		panic("drainoConditionsAnnotationSeparator and SuppliedConditionDurationSeparator must be different to avoid parsing issues")
+	}
+}
 
 // Opencensus measurements.
 var (
@@ -572,7 +579,7 @@ func parseConditionsFromAnnotation(n *core.Node) ([]SuppliedCondition, error) {
 	if n.Annotations[drainoConditionsAnnotationKey] == "" {
 		return nil, nil
 	}
-	rawConditions := strings.Split(n.Annotations[drainoConditionsAnnotationKey], ";")
+	rawConditions := strings.Split(n.Annotations[drainoConditionsAnnotationKey], drainoConditionsAnnotationSeparator)
 	return ParseConditions(rawConditions)
 }
 
@@ -635,7 +642,7 @@ func conditionAnnotationMutator(conditions []SuppliedCondition) func(*core.Node)
 		if n.Annotations == nil {
 			n.Annotations = make(map[string]string)
 		}
-		n.Annotations[drainoConditionsAnnotationKey] = strings.Join(value, ";")
+		n.Annotations[drainoConditionsAnnotationKey] = strings.Join(value, drainoConditionsAnnotationSeparator)
 	}
 }
 

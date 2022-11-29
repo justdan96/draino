@@ -64,8 +64,12 @@ func NewNodeLabelFilter(expressionStr string, log *zap.Logger) (func(o interface
 	}, nil
 }
 
+const (
+	SuppliedConditionDurationSeparator = ";"
+)
+
 // ParseConditions can parse the string array of conditions to a list of
-// SuppliedContion to support particular status value and duration.
+// SuppliedCondition to support particular status value and duration.
 func ParseConditions(conditions []string) ([]SuppliedCondition, error) {
 	parsed := make([]SuppliedCondition, len(conditions))
 	for i, c := range conditions {
@@ -74,7 +78,10 @@ func ParseConditions(conditions []string) ([]SuppliedCondition, error) {
 			// Keep backward compatibility
 			ts = []string{c, "True;0s"}
 		}
-		sm := strings.SplitN(ts[1], ";", 2)
+		sm := strings.SplitN(ts[1], SuppliedConditionDurationSeparator, 2)
+		if len(sm) < 2 {
+			return nil, fmt.Errorf("failed to parse SuppliedCondition %s", c)
+		}
 		duration, err := time.ParseDuration(sm[1])
 		if err != nil {
 			return nil, err
