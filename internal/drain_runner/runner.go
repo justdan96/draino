@@ -2,6 +2,7 @@ package drain_runner
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/groups"
@@ -23,8 +24,9 @@ type drainRunner struct {
 	clock     clock.Clock
 	retryWall drain.RetryWall
 	drainer   kubernetes.Drainer
+	runEvery  time.Duration
 
-	conf *DrainRunnerConfig
+	preprocessors []DrainPreprozessor
 }
 
 func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
@@ -49,13 +51,13 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 				runner.logger.Error(err, "error during candidate evaluation", "node_name", candidate.Name)
 			}
 		}
-	}, runner.conf.rerunEvery)
+	}, runner.runEvery)
 	return nil
 }
 
 func (runner *drainRunner) drainCandidate(ctx context.Context, candidate *corev1.Node) error {
 	allPreprocessorsDone := true
-	for _, pre := range runner.conf.preprocessors {
+	for _, pre := range runner.preprocessors {
 		done, err := pre.Process(candidate)
 		if err != nil {
 			allPreprocessorsDone = false
