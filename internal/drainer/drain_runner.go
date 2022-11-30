@@ -2,15 +2,14 @@ package drainer
 
 import (
 	"context"
-	"errors"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/groups"
+	"github.com/planetlabs/draino/internal/kubernetes"
+	"github.com/planetlabs/draino/internal/kubernetes/drain"
+	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/kubernetes/pkg/util/taints"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -19,10 +18,13 @@ var _ groups.Runner = &drainRunner{}
 
 // drainRunner implements the groups.Runner interface and will be used to drain nodes of the given group configuration
 type drainRunner struct {
-	client client.Client
-	logger logr.Logger
-	clock  clock.Clock
-	conf   *DrainRunnerConfig
+	client    client.Client
+	logger    logr.Logger
+	clock     clock.Clock
+	retryWall drain.RetryWall
+	drainer   kubernetes.Drainer
+
+	conf *DrainRunnerConfig
 }
 
 func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
@@ -52,17 +54,6 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 }
 
 func (runner *drainRunner) drainCandidate(ctx context.Context, candidate *corev1.Node) error {
-	// check if the candidate is in the loop for too long
-	if candidateReachedTimeout(runner.conf.drainTimeout, candidate, runner.clock.Now()) {
-		runner.logger.Error(errors.New("candidate reached drain timeout"), "will remove candidate status from node", "node_name", candidate.Name)
-		return runner.removeDrainCandidate(candidate)
-	}
-
-	// Add a taint to the node, so that no new poods are scheduled during the draining
-	if err := runner.taintNode(candidate); err != nil {
-		return err
-	}
-
 	allPreprocessorsDone := true
 	for _, pre := range runner.conf.preprocessors {
 		done, err := pre.Process(candidate)
@@ -87,51 +78,35 @@ func (runner *drainRunner) drainCandidate(ctx context.Context, candidate *corev1
 }
 
 func (runner *drainRunner) drain(ctx context.Context, candidate *corev1.Node) error {
+	if err := k8sclient.TaintNode(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDraining); err != nil {
+		return err
+	}
+
+	err := runner.drainer.Drain(ctx, candidate)
+	if err != nil {
+		return runner.removeFailedCandidate(ctx, candidate, err.Error())
+	}
+
+	return k8sclient.TaintNode(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDrained)
+}
+
+func (runner *drainRunner) removeFailedCandidate(ctx context.Context, candidate *corev1.Node, reason string) error {
+	err := runner.retryWall.SetNewRetryWallTimestamp(ctx, candidate, reason, runner.clock.Now())
+	if err != nil {
+		return err
+	}
+
+	err = k8sclient.UntaintNode(ctx, runner.client, candidate, k8sclient.TaintDrainCandidate, k8sclient.TaintDraining, k8sclient.TaintDrained)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (runner *drainRunner) getDrainCandidates(key groups.GroupKey) ([]corev1.Node, error) {
 	// TODO get all nodes (of this group) and filter the ones that are marked to be drained
 	// Maybe use an index?
+	// Filter out the ones that have the "drained" taint
 	return []corev1.Node{}, nil
-}
-
-func (runner *drainRunner) removeDrainCandidate(candidate *corev1.Node) error {
-	return runner.untaintNode(candidate)
-}
-
-func (runner *drainRunner) taintNode(candidate *corev1.Node) error {
-	taint := createTaint(runner.clock.Now())
-	newNode, updated, err := taints.AddOrUpdateTaint(candidate, taint)
-	if err != nil {
-		return err
-	}
-	if !updated {
-		return nil
-	}
-	return runner.client.Update(context.Background(), newNode)
-}
-
-func (runner *drainRunner) untaintNode(candidate *corev1.Node) error {
-	taint := createTaint(runner.clock.Now())
-	newNode, updated, err := taints.RemoveTaint(candidate, taint)
-	if err != nil {
-		return err
-	}
-	if !updated {
-		return nil
-	}
-	return runner.client.Update(context.Background(), newNode)
-}
-
-func createTaint(now time.Time) *corev1.Taint {
-	timeAdded := v1.NewTime(now)
-	taint := corev1.Taint{Key: "draino", Value: "drain-candidate", Effect: corev1.TaintEffectNoSchedule, TimeAdded: &timeAdded}
-	return &taint
-}
-
-func candidateReachedTimeout(timeout time.Duration, candidate *corev1.Node, now time.Time) bool {
-	// TODO get drain start time
-	drainStart := candidate.CreationTimestamp.Time
-	return drainStart.Add(timeout).After(now)
 }
