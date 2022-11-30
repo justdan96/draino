@@ -26,8 +26,9 @@ type drainRunner struct {
 }
 
 func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
+	ctx, cancel := context.WithCancel(info.Context)
 	// run an endless loop until there are no drain candidates left
-	wait.UntilWithContext(info.Context, func(ctx context.Context) {
+	wait.UntilWithContext(ctx, func(ctx context.Context) {
 		candidates, err := runner.getDrainCandidates(info.Key)
 		// in case of an error we'll just try it again
 		if err != nil {
@@ -37,7 +38,7 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 		if len(candidates) == 0 {
 			// If there are no candidates left, we'll stop the loop
 			runner.logger.Info("no candidates in group left, stopping.", "group_key", info.Key)
-			info.CancelFunc()
+			cancel()
 			return
 		}
 

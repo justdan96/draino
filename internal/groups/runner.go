@@ -9,9 +9,8 @@ import (
 )
 
 type RunnerInfo struct {
-	Context    context.Context
-	CancelFunc context.CancelFunc
-	Key        GroupKey
+	Context context.Context
+	Key     GroupKey
 }
 
 // Runner is in charge of a set of nodes for a given group
@@ -64,12 +63,11 @@ func (g *GroupsRunner) RunForGroup(key GroupKey) {
 func (g *GroupsRunner) runForGroup(key GroupKey) *RunnerInfo {
 	ctx, cancel := context.WithCancel(g.parentContext)
 	r := &RunnerInfo{
-		Key:        key,
-		Context:    ctx,
-		CancelFunc: cancel,
+		Key:     key,
+		Context: ctx,
 	}
 	go func(runInfo *RunnerInfo) {
-		defer runInfo.CancelFunc()
+		defer cancel()
 		g.logger.Info("Scheduling group opened", "groupKey", key)
 		err := g.factory.BuildRunner().Run(runInfo)
 		if err != nil {
