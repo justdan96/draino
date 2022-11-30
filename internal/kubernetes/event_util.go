@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
-	"k8s.io/apimachinery/pkg/types"
-	"strconv"
-	"time"
-
 	core "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"strconv"
 
 	xxhash_v2 "github.com/cespare/xxhash/v2"
 )
@@ -98,7 +96,6 @@ func CreateNodeSpan(obj *core.Node) tracer.Span {
 		"andy-test",
 		tracer.ServiceName("draino"),
 		tracer.ResourceName("node_drain"),
-		tracer.StartTime(time.Now().Add(10*time.Second)),
 		tracer.ChildOf(parent),
 	)
 

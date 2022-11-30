@@ -927,7 +927,7 @@ func (d *APICordonDrainer) evictionSequence(ctx context.Context, node *core.Node
 			if pod.DeletionTimestamp == nil {
 				span = CreateNodeSpan(node)
 				err = evictionFunc()
-				span.Finish(tracer.FinishTime(time.Now().Add(10 * time.Second)))
+				span.Finish()
 			}
 			switch {
 			// The eviction API returns 429 Too Many Requests if a pod
