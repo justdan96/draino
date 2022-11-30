@@ -83,12 +83,28 @@ func (e *eventRecorder) PersistentVolumeEventf(ctx context.Context, obj *core.Pe
 	e.eventRecorder.Eventf(obj, eventType, reason, messageFmt, args...)
 }
 
+type spanParent struct {
+	id uint64
+}
+
+func (p *spanParent) SpanID() uint64 {
+	return p.id
+}
+
+func (p *spanParent) TraceID() uint64 {
+	return p.id
+}
+
+func (p *spanParent) ForeachBaggageItem(_ func(k string, v string) bool) {}
+
 func CreateNodeSpan(obj *core.Node) tracer.Span {
 	span := tracer.StartSpan(
 		"andy-test",
 		tracer.ServiceName("draino"),
 		tracer.ResourceName("node_drain"),
-		tracer.WithSpanID(generateSpanID("nla-node-drain", string(obj.UID))),
+		tracer.ChildOf(&spanParent{
+			id: generateSpanID("nla-node-drain", string(obj.UID)),
+		}),
 	)
 
 	return span
