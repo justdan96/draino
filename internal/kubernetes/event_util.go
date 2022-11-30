@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	"k8s.io/apimachinery/pkg/types"
+	"time"
 
 	core "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -102,6 +103,7 @@ func CreateNodeSpan(obj *core.Node) tracer.Span {
 		"andy-test",
 		tracer.ServiceName("draino"),
 		tracer.ResourceName("node_drain"),
+		tracer.StartTime(time.Now().Add(10*time.Second)),
 		tracer.ChildOf(&spanParent{
 			id: generateSpanID("nla-node-drain", string(obj.UID)),
 		}),
