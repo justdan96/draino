@@ -11,6 +11,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+type WithOption = func(conf *Config)
+
 // Config configuration passed to the drain runner
 type Config struct {
 	logger     logr.Logger
@@ -46,39 +48,46 @@ func (conf *Config) Validate() error {
 	return nil
 }
 
-func (conf *Config) WithKubeClient(client client.Client) *Config {
-	conf.kubeClient = client
-	return conf
+func WithKubeClient(client client.Client) WithOption {
+	return func(conf *Config) {
+		conf.kubeClient = client
+	}
 }
 
-func (conf *Config) WithLogger(logger logr.Logger) *Config {
-	conf.logger = logger
-	return conf
+func (conf *Config) WithLogger(logger logr.Logger) WithOption {
+	return func(conf *Config) {
+		conf.logger = logger
+	}
 }
 
 // WithPreprocessor will attach the given preprocessor to the configuration
-func (conf *Config) WithPreprocessor(pre DrainPreprozessor) *Config {
-	conf.preprocessors = append(conf.preprocessors, pre)
-	return conf
+func (conf *Config) WithPreprocessor(pre DrainPreprozessor) WithOption {
+	return func(conf *Config) {
+		conf.preprocessors = append(conf.preprocessors, pre)
+	}
 }
 
 // WithRerun will override the default rerun configuration
-func (conf *Config) WithRerun(rerun time.Duration) *Config {
-	conf.rerunEvery = rerun
-	return conf
+func (conf *Config) WithRerun(rerun time.Duration) WithOption {
+	return func(conf *Config) {
+		conf.rerunEvery = rerun
+	}
 }
 
-func (conf *Config) WithClock(c clock.Clock) *Config {
-	conf.clock = c
-	return conf
+func (conf *Config) WithClock(c clock.Clock) WithOption {
+	return func(conf *Config) {
+		conf.clock = c
+	}
 }
 
-func (conf *Config) WithRetryWall(wall drain.RetryWall) *Config {
-	conf.retryWall = wall
-	return conf
+func (conf *Config) WithRetryWall(wall drain.RetryWall) WithOption {
+	return func(conf *Config) {
+		conf.retryWall = wall
+	}
 }
 
-func (conf *Config) WithDrainer(drainer kubernetes.Drainer) *Config {
-	conf.drainer = drainer
-	return conf
+func (conf *Config) WithDrainer(drainer kubernetes.Drainer) WithOption {
+	return func(conf *Config) {
+		conf.drainer = drainer
+	}
 }

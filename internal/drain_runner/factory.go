@@ -9,10 +9,16 @@ type DrainRunnerFactory struct {
 	conf *Config
 }
 
-func NewFactory(conf *Config) (groups.RunnerFactory, error) {
+func NewFactory(withOptions ...WithOption) (groups.RunnerFactory, error) {
+	conf := NewConfig()
+	for _, opt := range withOptions {
+		opt(conf)
+	}
+
 	if err := conf.Validate(); err != nil {
 		return nil, err
 	}
+
 	return &DrainRunnerFactory{conf: conf}, nil
 }
 
