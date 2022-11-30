@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	"k8s.io/apimachinery/pkg/types"
+	"strconv"
 	"time"
 
 	core "k8s.io/api/core/v1"
@@ -84,29 +85,21 @@ func (e *eventRecorder) PersistentVolumeEventf(ctx context.Context, obj *core.Pe
 	e.eventRecorder.Eventf(obj, eventType, reason, messageFmt, args...)
 }
 
-type spanParent struct {
-	id uint64
-}
-
-func (p *spanParent) SpanID() uint64 {
-	return p.id
-}
-
-func (p *spanParent) TraceID() uint64 {
-	return p.id
-}
-
-func (p *spanParent) ForeachBaggageItem(_ func(k string, v string) bool) {}
-
 func CreateNodeSpan(obj *core.Node) tracer.Span {
+	spanId := generateSpanID("nla-node-drain", string(obj.UID))
+	parent, err := tracer.Extract(tracer.TextMapCarrier{
+		tracer.DefaultTraceIDHeader:  strconv.FormatUint(spanId, 10),
+		tracer.DefaultParentIDHeader: strconv.FormatUint(spanId, 10),
+	})
+	if err != nil {
+		fmt.Printf("[andy-test] failed to setup span parent: %v", err)
+	}
 	span := tracer.StartSpan(
 		"andy-test",
 		tracer.ServiceName("draino"),
 		tracer.ResourceName("node_drain"),
 		tracer.StartTime(time.Now().Add(10*time.Second)),
-		tracer.ChildOf(&spanParent{
-			id: generateSpanID("nla-node-drain", string(obj.UID)),
-		}),
+		tracer.ChildOf(parent),
 	)
 
 	return span
