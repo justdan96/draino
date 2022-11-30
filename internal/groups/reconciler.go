@@ -36,12 +36,19 @@ type GroupRegistry struct {
 	groupDrainCandidateRunner *GroupsRunner
 }
 
-func NewGroupRegistry(ctx context.Context, kclient client.Client, logger logr.Logger, eventRecorder kubernetes.EventRecorder, drainFactory, drainCandidateFactory RunnerFactory) *GroupRegistry {
+func NewGroupRegistry(
+	ctx context.Context,
+	kclient client.Client,
+	logger logr.Logger,
+	eventRecorder kubernetes.EventRecorder,
+	keyGetter GroupKeyGetter,
+	drainFactory, drainCandidateFactory RunnerFactory,
+) *GroupRegistry {
 	return &GroupRegistry{
 		kclient:                   kclient,
 		logger:                    logger,
 		nodeWarmUpDelay:           nodeWarmUpDelay,
-		keyGetter:                 drainFactory.GroupKeyGetter(),
+		keyGetter:                 keyGetter,
 		groupDrainRunner:          NewGroupsRunner(ctx, drainFactory, logger, "drain"),
 		groupDrainCandidateRunner: NewGroupsRunner(ctx, drainCandidateFactory, logger, "drain_candidate"),
 		eventRecorder:             eventRecorder,

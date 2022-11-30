@@ -21,7 +21,6 @@ type Runner interface {
 
 type RunnerFactory interface {
 	BuildRunner() Runner
-	GroupKeyGetter() GroupKeyGetter
 }
 
 type GroupsRunner struct {
@@ -66,7 +65,7 @@ func (g *GroupsRunner) runForGroup(key GroupKey) *RunnerInfo {
 		Key:     key,
 		Context: ctx,
 	}
-	go func(runInfo *RunnerInfo) {
+	go func(runInfo *RunnerInfo, cancel context.CancelFunc) {
 		defer cancel()
 		g.logger.Info("Scheduling group opened", "groupKey", key)
 		err := g.factory.BuildRunner().Run(runInfo)
@@ -78,7 +77,7 @@ func (g *GroupsRunner) runForGroup(key GroupKey) *RunnerInfo {
 		delete(g.running, runInfo.Key)
 		g.logger.Info("Scheduling group closed", "groupKey", key)
 		g.Unlock()
-	}(r)
+	}(r, cancel)
 	return r
 }
 

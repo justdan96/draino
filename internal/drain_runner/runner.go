@@ -1,4 +1,4 @@
-package drainer
+package drain_runner
 
 import (
 	"context"
