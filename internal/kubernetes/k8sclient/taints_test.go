@@ -86,7 +86,7 @@ func TestTaints_RemoveTaint(t *testing.T) {
 func createNode(taintVal DrainTaintValue) *corev1.Node {
 	taints := []corev1.Taint{}
 	if taintVal != "" {
-		taints = append(taints, *createTaint(taintVal, time.Now()))
+		taints = append(taints, *CreateTaint(taintVal, time.Now()))
 	}
 	return &corev1.Node{
 		ObjectMeta: v1.ObjectMeta{Name: "foo-node"},

@@ -79,7 +79,7 @@ func (r *GroupRegistry) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 // SetupWithManager setups the controller with goroutine and predicates
 func (r *GroupRegistry) SetupWithManager(mgr ctrl.Manager) error {
 
-	initSchedulingGroupIndexer(r.kclient, mgr.GetCache(), r.keyGetter)
+	InitSchedulingGroupIndexer(mgr.GetCache(), r.keyGetter)
 
 	return ctrl.NewControllerManagedBy(mgr).WithOptions(controller.Options{MaxConcurrentReconciles: 2}).
 		For(&v1.Node{}).
