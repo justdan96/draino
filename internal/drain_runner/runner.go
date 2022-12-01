@@ -100,7 +100,7 @@ func (runner *drainRunner) removeFailedCandidate(ctx context.Context, candidate 
 		return err
 	}
 
-	err = k8sclient.UntaintNode(ctx, runner.client, candidate, k8sclient.TaintDrainCandidate, k8sclient.TaintDraining, k8sclient.TaintDrained)
+	err = k8sclient.UntaintNode(ctx, runner.client, candidate)
 	if err != nil {
 		return err
 	}
@@ -116,12 +116,13 @@ func (runner *drainRunner) getDrainCandidates(ctx context.Context, key groups.Gr
 
 	candidates := make([]*corev1.Node, 0)
 	for _, node := range nodes {
-		// if the node has the drained taint, draino already finished it
-		if k8sclient.TaintExists(node, k8sclient.TaintDrained) {
+		taint, exist := k8sclient.GetTaint(node)
+		// if the node doesn't have the draino taint, it should not be processed
+		if !exist {
 			continue
 		}
-		// if the node doesn't have the drain candidate taint, it should not be processed
-		if !k8sclient.TaintExists(node, k8sclient.TaintDrainCandidate) {
+		// if the taint value is "drained", draino is done and the node should be ignored
+		if taint.Value == k8sclient.TaintDrained {
 			continue
 		}
 		candidates = append(candidates, node.DeepCopy())

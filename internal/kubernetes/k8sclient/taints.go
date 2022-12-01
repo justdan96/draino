@@ -20,55 +20,45 @@ const (
 	TaintDrained        DrainTaintValue = "drained"
 )
 
-func TaintNode(ctx context.Context, client client.Client, candidate *corev1.Node, now time.Time, values ...DrainTaintValue) error {
-	var updated bool
-	node := candidate
-
-	for _, val := range values {
-		taint := createTaint(val, now)
-		newNode, changed, err := taints.AddOrUpdateTaint(node, taint)
-		if err != nil {
-			return err
-		}
-		if changed {
-			updated = true
-		}
-		node = newNode
+func TaintNode(ctx context.Context, client client.Client, candidate *corev1.Node, now time.Time, value DrainTaintValue) error {
+	taint := createTaint(value, now)
+	newNode, updated, err := taints.AddOrUpdateTaint(candidate, taint)
+	if err != nil {
+		return err
 	}
-
 	if !updated {
 		return nil
 	}
-
-	return client.Update(ctx, node)
+	return client.Update(ctx, newNode)
 }
 
-func UntaintNode(ctx context.Context, client client.Client, candidate *corev1.Node, values ...DrainTaintValue) error {
-	var updated bool
-	node := candidate
-
-	for _, val := range values {
-		taint := createTaint(val, time.Time{})
-		newNode, changed, err := taints.RemoveTaint(node, taint)
-		if err != nil {
-			return err
-		}
-		if changed {
-			updated = true
-		}
-		node = newNode
+func UntaintNode(ctx context.Context, client client.Client, candidate *corev1.Node) error {
+	// The neither the taint value nor the timestamp do really matter
+	taint := createTaint(TaintDrained, time.Time{})
+	newNode, updated, err := taints.RemoveTaint(candidate, taint)
+	if err != nil {
+		return err
 	}
-
 	if !updated {
 		return nil
 	}
-
-	return client.Update(ctx, node)
+	return client.Update(ctx, newNode)
 }
 
-func TaintExists(node *corev1.Node, value DrainTaintValue) bool {
-	taint := createTaint(value, time.Time{})
-	return taints.TaintExists(node.Spec.Taints, taint)
+func GetTaint(node *corev1.Node) (*corev1.Taint, bool) {
+	if len(node.Spec.Taints) == 0 {
+		return nil, false
+	}
+
+	// The neither the taint value nor the timestamp do really matter
+	search := createTaint(TaintDrainCandidate, time.Time{})
+	for _, taint := range node.Spec.Taints {
+		if taint.MatchTaint(search) {
+			return &taint, true
+		}
+	}
+
+	return nil, false
 }
 
 func createTaint(val DrainTaintValue, now time.Time) *corev1.Taint {
