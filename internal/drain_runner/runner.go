@@ -8,6 +8,7 @@ import (
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -19,12 +20,13 @@ var _ groups.Runner = &drainRunner{}
 
 // drainRunner implements the groups.Runner interface and will be used to drain nodes of the given group configuration
 type drainRunner struct {
-	client    client.Client
-	logger    logr.Logger
-	clock     clock.Clock
-	retryWall drain.RetryWall
-	drainer   kubernetes.Drainer
-	runEvery  time.Duration
+	client              client.Client
+	logger              logr.Logger
+	clock               clock.Clock
+	retryWall           drain.RetryWall
+	drainer             kubernetes.Drainer
+	sharedIndexInformer index.GetSharedIndexInformer
+	runEvery            time.Duration
 
 	preprocessors []DrainPreprozessor
 }
@@ -33,7 +35,7 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 	ctx, cancel := context.WithCancel(info.Context)
 	// run an endless loop until there are no drain candidates left
 	wait.UntilWithContext(ctx, func(ctx context.Context) {
-		candidates, err := runner.getDrainCandidates(info.Key)
+		candidates, err := runner.getDrainCandidates(ctx, info.Key)
 		// in case of an error we'll just try it again
 		if err != nil {
 			runner.logger.Error(err, "cannot get drain candidates for group", "group_key", info.Key)
@@ -47,7 +49,7 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 		}
 
 		for _, candidate := range candidates {
-			if err := runner.drainCandidate(info.Context, &candidate); err != nil {
+			if err := runner.drainCandidate(info.Context, candidate); err != nil {
 				runner.logger.Error(err, "error during candidate evaluation", "node_name", candidate.Name)
 			}
 		}
@@ -106,9 +108,24 @@ func (runner *drainRunner) removeFailedCandidate(ctx context.Context, candidate 
 	return nil
 }
 
-func (runner *drainRunner) getDrainCandidates(key groups.GroupKey) ([]corev1.Node, error) {
-	// TODO get all nodes (of this group) and filter the ones that are marked to be drained
-	// Maybe use an index?
-	// Filter out the ones that have the "drained" taint
-	return []corev1.Node{}, nil
+func (runner *drainRunner) getDrainCandidates(ctx context.Context, key groups.GroupKey) ([]*corev1.Node, error) {
+	nodes, err := index.GetFromIndex[corev1.Node](ctx, runner.sharedIndexInformer, groups.SchedulingGroupIdx, string(key))
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]*corev1.Node, 0)
+	for _, node := range nodes {
+		// if the node has the drained taint, draino already finished it
+		if k8sclient.TaintExists(node, k8sclient.TaintDrained) {
+			continue
+		}
+		// if the node doesn't have the drain candidate taint, it should not be processed
+		if !k8sclient.TaintExists(node, k8sclient.TaintDrainCandidate) {
+			continue
+		}
+		candidates = append(candidates, node.DeepCopy())
+	}
+
+	return candidates, nil
 }

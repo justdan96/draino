@@ -24,12 +24,13 @@ func NewFactory(withOptions ...WithOption) (groups.RunnerFactory, error) {
 
 func (factory *DrainRunnerFactory) BuildRunner() groups.Runner {
 	return &drainRunner{
-		client:    factory.conf.kubeClient,
-		logger:    factory.conf.logger,
-		clock:     factory.conf.clock,
-		retryWall: factory.conf.retryWall,
-		drainer:   factory.conf.drainer,
-		runEvery:  factory.conf.rerunEvery,
+		client:              factory.conf.kubeClient,
+		logger:              factory.conf.logger,
+		clock:               factory.conf.clock,
+		retryWall:           factory.conf.retryWall,
+		drainer:             factory.conf.drainer,
+		sharedIndexInformer: factory.conf.sharedIndexInformer,
+		runEvery:            factory.conf.rerunEvery,
 
 		preprocessors: factory.conf.preprocessors,
 	}

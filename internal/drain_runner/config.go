@@ -7,6 +7,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -15,11 +16,12 @@ type WithOption = func(conf *Config)
 
 // Config configuration passed to the drain runner
 type Config struct {
-	logger     logr.Logger
-	kubeClient client.Client
-	clock      clock.Clock
-	retryWall  drain.RetryWall
-	drainer    kubernetes.Drainer
+	logger              logr.Logger
+	kubeClient          client.Client
+	clock               clock.Clock
+	retryWall           drain.RetryWall
+	drainer             kubernetes.Drainer
+	sharedIndexInformer index.GetSharedIndexInformer
 
 	preprocessors []DrainPreprozessor
 	rerunEvery    time.Duration
@@ -44,6 +46,9 @@ func (conf *Config) Validate() error {
 	}
 	if conf.drainer == nil {
 		return errors.New("drainer should be set")
+	}
+	if conf.sharedIndexInformer == nil {
+		return errors.New("get shared index informer should be set")
 	}
 	return nil
 }
@@ -89,5 +94,11 @@ func (conf *Config) WithRetryWall(wall drain.RetryWall) WithOption {
 func (conf *Config) WithDrainer(drainer kubernetes.Drainer) WithOption {
 	return func(conf *Config) {
 		conf.drainer = drainer
+	}
+}
+
+func (conf *Config) WithSharedIndexInformer(inf index.GetSharedIndexInformer) WithOption {
+	return func(conf *Config) {
+		conf.sharedIndexInformer = inf
 	}
 }

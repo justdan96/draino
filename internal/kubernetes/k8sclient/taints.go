@@ -49,7 +49,7 @@ func UntaintNode(ctx context.Context, client client.Client, candidate *corev1.No
 
 	for _, val := range values {
 		taint := createTaint(val, time.Time{})
-		newNode, changed, err := taints.AddOrUpdateTaint(node, taint)
+		newNode, changed, err := taints.RemoveTaint(node, taint)
 		if err != nil {
 			return err
 		}
@@ -64,6 +64,11 @@ func UntaintNode(ctx context.Context, client client.Client, candidate *corev1.No
 	}
 
 	return client.Update(ctx, node)
+}
+
+func TaintExists(node *corev1.Node, value DrainTaintValue) bool {
+	taint := createTaint(value, time.Time{})
+	return taints.TaintExists(node.Spec.Taints, taint)
 }
 
 func createTaint(val DrainTaintValue, now time.Time) *corev1.Taint {
