@@ -5,17 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
-	"github.com/planetlabs/draino/internal/kubernetes/drain"
-	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/clock"
+	"k8s.io/apimachinery/pkg/types"
 	cachecr "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -23,22 +20,23 @@ import (
 func TestDrainRunner(t *testing.T) {
 	tests := []struct {
 		Name          string
+		Key           groups.GroupKey
 		Node          *corev1.Node
 		Preprocessors []DrainPreprozessor
 		Drainer       kubernetes.Drainer
 	}{
 		{
 			Name:    "first test",
-			Node:    createNode("isso", k8sclient.TaintDrainCandidate),
+			Key:     "my-key",
+			Node:    createNode("my-key", k8sclient.TaintDrainCandidate),
 			Drainer: &kubernetes.NoopCordonDrainer{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			logger := logr.Discard()
 
-			clientWrapper, err := k8sclient.NewFakeClient(k8sclient.FakeConf{
+			wrapper, err := k8sclient.NewFakeClient(k8sclient.FakeConf{
 				Objects: []runtime.Object{tt.Node},
 				Indexes: []k8sclient.WithIndex{
 					func(_ client.Client, cache cachecr.Cache) error {
@@ -48,32 +46,29 @@ func TestDrainRunner(t *testing.T) {
 			})
 			assert.NoError(t, err)
 
-			fakeIndexer, err := index.New(clientWrapper.GetManagerClient(), clientWrapper.GetCache(), logger)
-			assert.NoError(t, err)
-
 			ch := make(chan struct{})
 			defer close(ch)
-			clientWrapper.Start(ch)
-
-			retryWall, err := drain.NewRetryWall(clientWrapper.GetManagerClient(), logger, &drain.StaticRetryStrategy{Delay: time.Second, AlertThreashold: 5})
-			assert.NoError(t, err)
-
-			isso := &drainRunner{
-				client:              clientWrapper.GetManagerClient(),
-				logger:              logger,
-				clock:               clock.RealClock{},
-				retryWall:           retryWall,
-				sharedIndexInformer: fakeIndexer,
-				drainer:             tt.Drainer,
-				runEvery:            time.Second,
-				preprocessors:       tt.Preprocessors,
-			}
+			runner, err := NewFakeRunner(&FakeOptions{
+				Chan:          ch,
+				ClientWrapper: wrapper,
+				Preprocessors: tt.Preprocessors,
+				Drainer:       tt.Drainer,
+			})
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
-			err = isso.Run(&groups.RunnerInfo{Context: ctx, Key: "isso"})
+			err = runner.Run(&groups.RunnerInfo{Context: ctx, Key: tt.Key})
 			assert.NoError(t, err)
+			assert.NoError(t, ctx.Err(), "context reached deadline")
+
+			var node corev1.Node
+			err = wrapper.GetManagerClient().Get(context.Background(), types.NamespacedName{Name: tt.Node.Name}, &node)
+			assert.NoError(t, err)
+
+			taint, exist := k8sclient.GetTaint(&node)
+			assert.True(t, exist)
+			assert.Equal(t, taint.Value, k8sclient.TaintDrained)
 		})
 	}
 }
