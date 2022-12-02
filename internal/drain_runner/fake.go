@@ -14,6 +14,7 @@ import (
 )
 
 type FakeOptions struct {
+	// Chan is used to start and keep the informers running
 	Chan          chan struct{}
 	ClientWrapper *k8sclient.FakeClientWrapper
 	Preprocessors []DrainPreprozessor
@@ -52,6 +53,8 @@ func (opts *FakeOptions) ApplyDefaults() error {
 	return nil
 }
 
+// NewFakeRunner will create an instances of the drain runner with mocked dependencies.
+// It will return an error if the given configuration is invalid or incomplete.
 func NewFakeRunner(opts *FakeOptions) (groups.Runner, error) {
 	if err := opts.ApplyDefaults(); err != nil {
 		return nil, err
@@ -62,6 +65,7 @@ func NewFakeRunner(opts *FakeOptions) (groups.Runner, error) {
 		return nil, err
 	}
 
+	// Start the informers and wait for them to sync
 	opts.ClientWrapper.Start(opts.Chan)
 
 	retryWall, err := drain.NewRetryWall(opts.ClientWrapper.GetManagerClient(), *opts.Logger, opts.RetryStrategy)
@@ -79,5 +83,4 @@ func NewFakeRunner(opts *FakeOptions) (groups.Runner, error) {
 		runEvery:            time.Second,
 		preprocessors:       opts.Preprocessors,
 	}, nil
-
 }
