@@ -12,17 +12,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// WithOption is used to pass an option to the factory
 type WithOption = func(conf *Config)
 
 // Config configuration passed to the drain runner
 type Config struct {
-	logger              logr.Logger
+	// Have to be set
+	logger              *logr.Logger
 	kubeClient          client.Client
-	clock               clock.Clock
 	retryWall           drain.RetryWall
 	drainer             kubernetes.Drainer
 	sharedIndexInformer index.GetSharedIndexInformer
 
+	// With defaults
+	clock         clock.Clock
 	preprocessors []DrainPreprozessor
 	rerunEvery    time.Duration
 }
@@ -30,14 +33,17 @@ type Config struct {
 // NewConfig returns a pointer to a new drain runner configuration
 func NewConfig() *Config {
 	return &Config{
-		logger:        logr.Discard(),
 		clock:         clock.RealClock{},
 		preprocessors: make([]DrainPreprozessor, 0),
 		rerunEvery:    time.Second,
 	}
 }
 
+// Validate validates the configuration and will return an error in case of misconfiguration
 func (conf *Config) Validate() error {
+	if conf.logger == nil {
+		return errors.New("logger should be set")
+	}
 	if conf.kubeClient == nil {
 		return errors.New("kube client should be set")
 	}
@@ -61,18 +67,16 @@ func WithKubeClient(client client.Client) WithOption {
 
 func (conf *Config) WithLogger(logger logr.Logger) WithOption {
 	return func(conf *Config) {
-		conf.logger = logger
+		conf.logger = &logger
 	}
 }
 
-// WithPreprocessor will attach the given preprocessor to the configuration
 func (conf *Config) WithPreprocessor(pre DrainPreprozessor) WithOption {
 	return func(conf *Config) {
 		conf.preprocessors = append(conf.preprocessors, pre)
 	}
 }
 
-// WithRerun will override the default rerun configuration
 func (conf *Config) WithRerun(rerun time.Duration) WithOption {
 	return func(conf *Config) {
 		conf.rerunEvery = rerun

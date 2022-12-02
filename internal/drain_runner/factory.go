@@ -9,6 +9,8 @@ type DrainRunnerFactory struct {
 	conf *Config
 }
 
+// NewFactory will return a new group runner factory for the drain runner.
+// It will return an error if the given configuration is invalid or incomplete.
 func NewFactory(withOptions ...WithOption) (groups.RunnerFactory, error) {
 	conf := NewConfig()
 	for _, opt := range withOptions {
@@ -25,7 +27,7 @@ func NewFactory(withOptions ...WithOption) (groups.RunnerFactory, error) {
 func (factory *DrainRunnerFactory) BuildRunner() groups.Runner {
 	return &drainRunner{
 		client:              factory.conf.kubeClient,
-		logger:              factory.conf.logger,
+		logger:              *factory.conf.logger,
 		clock:               factory.conf.clock,
 		retryWall:           factory.conf.retryWall,
 		drainer:             factory.conf.drainer,
