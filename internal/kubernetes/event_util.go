@@ -3,13 +3,11 @@ package kubernetes
 import (
 	"context"
 	"fmt"
+	xxhash_v2 "github.com/cespare/xxhash/v2"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
-	"strconv"
-
-	xxhash_v2 "github.com/cespare/xxhash/v2"
 )
 
 const (
@@ -85,18 +83,13 @@ func (e *eventRecorder) PersistentVolumeEventf(ctx context.Context, obj *core.Pe
 
 func CreateNodeSpan(obj *core.Node) tracer.Span {
 	spanId := generateSpanID("nla-node-drain", string(obj.UID))
-	parent, err := tracer.Extract(tracer.TextMapCarrier{
-		tracer.DefaultTraceIDHeader:  strconv.FormatUint(spanId, 10),
-		tracer.DefaultParentIDHeader: strconv.FormatUint(spanId, 10),
-	})
-	if err != nil {
-		fmt.Printf("[andy-test] failed to setup span parent: %v", err)
-	}
+	// parent span that is never finished
+	parent := tracer.StartSpan("", tracer.WithSpanID(spanId))
 	span := tracer.StartSpan(
 		"andy-test",
 		tracer.ServiceName("draino"),
 		tracer.ResourceName("node_drain"),
-		tracer.ChildOf(parent),
+		tracer.ChildOf(parent.Context()),
 	)
 
 	return span
