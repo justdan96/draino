@@ -71,9 +71,9 @@ func (conf *Config) WithLogger(logger logr.Logger) WithOption {
 	}
 }
 
-func (conf *Config) WithPreprocessor(pre DrainPreprozessor) WithOption {
+func (conf *Config) WithPreprocessors(pre ...DrainPreprozessor) WithOption {
 	return func(conf *Config) {
-		conf.preprocessors = append(conf.preprocessors, pre)
+		conf.preprocessors = append(conf.preprocessors, pre...)
 	}
 }
 

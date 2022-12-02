@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
@@ -19,6 +18,7 @@ type FakeOptions struct {
 	ClientWrapper *k8sclient.FakeClientWrapper
 	Preprocessors []DrainPreprozessor
 	Logger        *logr.Logger
+	RerunEvery    time.Duration
 
 	Clock clock.Clock
 
@@ -41,6 +41,9 @@ func (opts *FakeOptions) ApplyDefaults() error {
 		discard := logr.Discard()
 		opts.Logger = &discard
 	}
+	if opts.RerunEvery == 0 {
+		opts.RerunEvery = 5 * time.Millisecond
+	}
 	if opts.Clock == nil {
 		opts.Clock = clock.RealClock{}
 	}
@@ -55,7 +58,7 @@ func (opts *FakeOptions) ApplyDefaults() error {
 
 // NewFakeRunner will create an instances of the drain runner with mocked dependencies.
 // It will return an error if the given configuration is invalid or incomplete.
-func NewFakeRunner(opts *FakeOptions) (groups.Runner, error) {
+func NewFakeRunner(opts *FakeOptions) (*drainRunner, error) {
 	if err := opts.ApplyDefaults(); err != nil {
 		return nil, err
 	}
@@ -80,7 +83,7 @@ func NewFakeRunner(opts *FakeOptions) (groups.Runner, error) {
 		retryWall:           retryWall,
 		sharedIndexInformer: fakeIndexer,
 		drainer:             opts.Drainer,
-		runEvery:            time.Second,
+		runEvery:            opts.RerunEvery,
 		preprocessors:       opts.Preprocessors,
 	}, nil
 }
