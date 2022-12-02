@@ -835,11 +835,12 @@ func (d *APICordonDrainer) evictWithOperatorAPI(ctx context.Context, url string,
 				roundTripper = authnclient.NewRoundTripper(roundTripper, authnclient.NewEmissaryTokenGetter(tokenAudience))
 				// Removing this token parameter so that the server don't get it on the URL. The value is now available for the server inside the bearer token
 				urlParsed.Query().Del("token-audience")
+				d.l.Info("Using token-audience parameter", zap.String("token-audience", tokenAudience))
 			}
 
 			client = &http.Client{Transport: roundTripper, Timeout: 10 * time.Second}
-
-			req, err := http.NewRequest("POST", url, GetEvictionJsonPayload(evictionPayload))
+			d.l.Info("calling eviction++", zap.String("url", urlParsed.String()))
+			req, err := http.NewRequest("POST", urlParsed.String(), GetEvictionJsonPayload(evictionPayload))
 			req = req.WithContext(ctx)
 			req.Header.Set("Content-Type", "application/json")
 
