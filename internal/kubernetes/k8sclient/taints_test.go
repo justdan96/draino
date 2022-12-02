@@ -33,8 +33,9 @@ func TestTaints_AddTaint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
 			client := fake.NewFakeClient(tt.Node)
+			now := time.Now()
 
-			err := TaintNode(context.Background(), client, tt.Node, time.Now(), tt.NewTaint)
+			_, err := TaintNode(context.Background(), client, tt.Node, now, tt.NewTaint)
 			assert.NoError(t, err)
 
 			var node corev1.Node
@@ -45,6 +46,7 @@ func TestTaints_AddTaint(t *testing.T) {
 			taint, exist := GetTaint(&node)
 			assert.True(t, exist)
 			assert.Equal(t, tt.NewTaint, taint.Value)
+			assert.Equal(t, now.Format(time.RFC3339), taint.TimeAdded.Format(time.RFC3339))
 		})
 	}
 }
@@ -68,7 +70,7 @@ func TestTaints_RemoveTaint(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			client := fake.NewFakeClient(tt.Node)
 
-			err := UntaintNode(context.Background(), client, tt.Node)
+			_, err := UntaintNode(context.Background(), client, tt.Node)
 			assert.NoError(t, err)
 
 			var node corev1.Node

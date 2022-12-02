@@ -6,7 +6,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/util/taints"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -14,50 +13,57 @@ import (
 type DrainTaintValue = string
 
 const (
-	DrainoTaintKey = "draino"
+	// DrainoTaintKey taint key used to show progress of node drain operation
+	DrainoTaintKey = "node-lifecycle"
 
+	// TaintDrainCandidate is used to mark a node as the next drain candidate.
+	// Now it will be picked up by the drain runner.
 	TaintDrainCandidate DrainTaintValue = "drain-candidate"
-	TaintDraining       DrainTaintValue = "draining"
-	TaintDrained        DrainTaintValue = "drained"
+	// TaintDraining is used to show that all preprocessors are done and that the draining will start now
+	TaintDraining DrainTaintValue = "draining"
+	// TaintDrained is used to show that the drain was successfully done and the node is ready to be shutdown
+	TaintDrained DrainTaintValue = "drained"
 )
 
-func TaintNode(ctx context.Context, client client.Client, candidate *corev1.Node, now time.Time, value DrainTaintValue) error {
-	var node corev1.Node
-	err := client.Get(ctx, types.NamespacedName{Name: candidate.Name}, &node)
-	if err != nil {
-		return err
-	}
-
+// TaintNode adds the nla taint with the given value to the given node.
+// After the update is done, it will return the updated version of the node, which can be used for further updates.
+func TaintNode(ctx context.Context, client client.Client, node *corev1.Node, now time.Time, value DrainTaintValue) (*corev1.Node, error) {
 	taint := CreateTaint(value, now)
-	newNode, updated, err := taints.AddOrUpdateTaint(&node, taint)
+	newNode, updated, err := taints.AddOrUpdateTaint(node, taint)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !updated {
-		return nil
+		return node, nil
 	}
-	return client.Update(ctx, newNode)
+
+	err = client.Update(ctx, newNode)
+	return newNode, err
 }
 
-func UntaintNode(ctx context.Context, client client.Client, candidate *corev1.Node) error {
-	// The neither the taint value nor the timestamp do really matter
+// UntaintNode removes the nla taint from the given node.
+// After the update is done, it will return the updated version of the node, which can be used for further updates.
+func UntaintNode(ctx context.Context, client client.Client, node *corev1.Node) (*corev1.Node, error) {
+	// In this case neither the taint value nor the timestamp do really matter
 	taint := CreateTaint(TaintDrained, time.Time{})
-	newNode, updated, err := taints.RemoveTaint(candidate, taint)
+	newNode, updated, err := taints.RemoveTaint(node, taint)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !updated {
-		return nil
+		return node, nil
 	}
-	return client.Update(ctx, newNode)
+	err = client.Update(ctx, newNode)
+	return newNode, err
 }
 
+// GetTaint searches for the nla taint and returns it if found.
 func GetTaint(node *corev1.Node) (*corev1.Taint, bool) {
 	if len(node.Spec.Taints) == 0 {
 		return nil, false
 	}
 
-	// The neither the taint value nor the timestamp do really matter
+	// In this case neither the taint value nor the timestamp do really matter
 	search := CreateTaint(TaintDrainCandidate, time.Time{})
 	for _, taint := range node.Spec.Taints {
 		if taint.MatchTaint(search) {
@@ -68,6 +74,7 @@ func GetTaint(node *corev1.Node) (*corev1.Taint, bool) {
 	return nil, false
 }
 
+// CreateTaint creates a new NLA taint with the given value and TS
 func CreateTaint(val DrainTaintValue, now time.Time) *corev1.Taint {
 	timeAdded := metav1.NewTime(now)
 	taint := corev1.Taint{Key: DrainoTaintKey, Value: val, Effect: corev1.TaintEffectNoSchedule, TimeAdded: &timeAdded}

@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Make sure that the drain runner is implementing the group runner interface
 var _ groups.Runner = &drainRunner{}
 
 // drainRunner implements the groups.Runner interface and will be used to drain nodes of the given group configuration
@@ -82,16 +83,18 @@ func (runner *drainRunner) drainCandidate(ctx context.Context, candidate *corev1
 }
 
 func (runner *drainRunner) drain(ctx context.Context, candidate *corev1.Node) error {
-	if err := k8sclient.TaintNode(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDraining); err != nil {
+	candidate, err := k8sclient.TaintNode(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDraining)
+	if err != nil {
 		return err
 	}
 
-	err := runner.drainer.Drain(ctx, candidate)
+	err = runner.drainer.Drain(ctx, candidate)
 	if err != nil {
 		return runner.removeFailedCandidate(ctx, candidate, err.Error())
 	}
 
-	return k8sclient.TaintNode(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDrained)
+	_, err = k8sclient.TaintNode(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDrained)
+	return err
 }
 
 func (runner *drainRunner) removeFailedCandidate(ctx context.Context, candidate *corev1.Node, reason string) error {
@@ -100,12 +103,8 @@ func (runner *drainRunner) removeFailedCandidate(ctx context.Context, candidate 
 		return err
 	}
 
-	err = k8sclient.UntaintNode(ctx, runner.client, candidate)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	_, err = k8sclient.UntaintNode(ctx, runner.client, candidate)
+	return err
 }
 
 func (runner *drainRunner) getDrainCandidates(ctx context.Context, key groups.GroupKey) ([]*corev1.Node, error) {
