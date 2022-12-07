@@ -660,6 +660,8 @@ func (d *APICordonDrainer) Drain(ctx context.Context, node *core.Node) error {
 		return fmt.Errorf("cannot get pods for node %s: %w", n.GetName(), err)
 	}
 
+	ndSpanContext := GetSharedSpan(node, "node_drain_drain_started_drain_completed")
+
 	abort := make(chan struct{})
 	errs := make(chan error, 1)
 	for i := range pods {
@@ -667,7 +669,10 @@ func (d *APICordonDrainer) Drain(ctx context.Context, node *core.Node) error {
 		go func() {
 			d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod %s/%s to drain node", pod.Namespace, pod.Name)
 			d.eventRecorder.PodEventf(ctx, pod, n, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod to drain node %s", n.Name)
-			if err := d.evict(ctx, n, pod, abort); err != nil {
+			evictPodSpan := CreateNodeSpan(ndSpanContext, "evict pod", tracer.Tag("pod", pod.UID))
+			err := d.evict(ctx, evictPodSpan, n, pod, abort)
+			evictPodSpan.Finish(tracer.WithError(err))
+			if err != nil {
 				d.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed for pod %s/%s: %v", pod.Namespace, pod.Name, err)
 				d.eventRecorder.PodEventf(ctx, pod, n, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed: %v", err)
 				errs <- fmt.Errorf("cannot evict pod %s/%s: %w", pod.GetNamespace(), pod.GetName(), err)
@@ -734,18 +739,12 @@ func (d *APICordonDrainer) GetPodsToDrain(ctx context.Context, node string, podS
 	return include, nil
 }
 
-func (d *APICordonDrainer) evict(ctx context.Context, node *core.Node, pod *core.Pod, abort <-chan struct{}) error {
-	ndSpanContext := GetSharedSpan(node, "node_drain_drain_started_drain_completed")
-	evictPodSpan := CreateNodeSpan(ndSpanContext, "evict pod", tracer.Tag("pod", pod.UID))
-
+func (d *APICordonDrainer) evict(ctx context.Context, evictPodSpan tracer.Span, node *core.Node, pod *core.Pod, abort <-chan struct{}) error {
 	evictionAPIURL, ok := GetAnnotationFromPodOrController(EvictionAPIURLAnnotationKey, pod, d.runtimeObjectStore)
-	var err error
 	if ok {
-		err = d.evictWithOperatorAPI(ctx, evictPodSpan, evictionAPIURL, node, pod, abort)
+		return d.evictWithOperatorAPI(ctx, evictPodSpan, evictionAPIURL, node, pod, abort)
 	}
-	err = d.evictWithKubernetesAPI(ctx, evictPodSpan, node, pod, abort)
-	evictPodSpan.Finish(tracer.WithError(err))
-	return err
+	return d.evictWithKubernetesAPI(ctx, evictPodSpan, node, pod, abort)
 }
 
 func (d *APICordonDrainer) getGracePeriodWithEvictionHeadRoom(pod *core.Pod) time.Duration {
