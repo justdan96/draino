@@ -85,6 +85,7 @@ func (e *eventRecorder) PersistentVolumeEventf(ctx context.Context, obj *core.Pe
 
 func GetSharedSpan(obj *core.Node, parentOperation string) ddtrace.SpanContext {
 	spanId := generateSpanID("nla-node-drain", parentOperation, string(obj.UID))
+	fmt.Println("andy-test: Span for node", obj.UID, "has ID", spanId)
 	// parent span that is never finished
 	parent, err := tracer.Extract(tracer.TextMapCarrier{
 		tracer.DefaultTraceIDHeader:  strconv.FormatUint(spanId, 10),
