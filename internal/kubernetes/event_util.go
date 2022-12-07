@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	xxhash_v2 "github.com/cespare/xxhash/v2"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"strconv"
 )
 
 const (
@@ -81,25 +83,42 @@ func (e *eventRecorder) PersistentVolumeEventf(ctx context.Context, obj *core.Pe
 	e.eventRecorder.Eventf(obj, eventType, reason, messageFmt, args...)
 }
 
-func CreateNodeSpan(obj *core.Node) tracer.Span {
-	spanId := generateSpanID("nla-node-drain", string(obj.UID))
+func GetSharedSpan(obj *core.Node, parentOperation string) ddtrace.SpanContext {
+	spanId := generateSpanID("nla-node-drain", parentOperation, string(obj.UID))
 	// parent span that is never finished
-	parent := tracer.StartSpan("", tracer.WithSpanID(spanId))
-	span := tracer.StartSpan(
-		"andy-test",
+	parent, err := tracer.Extract(tracer.TextMapCarrier{
+		tracer.DefaultTraceIDHeader:  strconv.FormatUint(spanId, 10),
+		tracer.DefaultParentIDHeader: strconv.FormatUint(spanId, 10),
+	})
+	if err != nil {
+		// TODO(andy) cleanup
+		fmt.Printf("[andy-test] failed to setup span parent: %v", err)
+	}
+	return parent
+}
+
+func CreateNodeSpan(parent ddtrace.SpanContext, operationName string, opts ...tracer.StartSpanOption) tracer.Span {
+	tracerOpts := []tracer.StartSpanOption{
 		tracer.ServiceName("draino"),
 		tracer.ResourceName("node_drain"),
-		tracer.ChildOf(parent.Context()),
+		tracer.ChildOf(parent),
+	}
+	tracerOpts = append(tracerOpts, opts...)
+	span := tracer.StartSpan(
+		operationName,
+		tracerOpts...,
 	)
 
 	return span
 }
 
-func generateSpanID(prefix string, uid string) uint64 {
+func generateSpanID(prefix, operation, uid string) uint64 {
 	digest := xxhash_v2.New()
 	// Below methods are specified in both code and documentation to always return "len(s), nil" so we can safely ignore
 	// the error value
 	_, _ = digest.WriteString(prefix)
+	_, _ = digest.WriteString("|")
+	_, _ = digest.WriteString(operation)
 	_, _ = digest.WriteString("|")
 	_, _ = digest.WriteString(uid)
 	return digest.Sum64()
