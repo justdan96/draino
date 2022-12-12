@@ -636,8 +636,9 @@ func GetDrainConditionStatus(n *core.Node) (DrainConditionStatus, error) {
 // Drain the supplied node. Evicts the node of all but mirror and DaemonSet pods.
 func (d *APICordonDrainer) Drain(ctx context.Context, node *core.Node) (err error) {
 	sharedDrainSpan := GetSharedSpan(node, "node_drain_drain_started_drain_completed")
-	span, ctx := tracer.StartSpanFromContext(ctx, "Drain", tracer.ChildOf(sharedDrainSpan))
+	span := tracer.StartSpan("Drain", tracer.ChildOf(sharedDrainSpan))
 	defer func() { span.Finish(tracer.WithError(err)) }()
+	ctx = tracer.ContextWithSpan(ctx, span)
 
 	// Do nothing if draining is not enabled.
 	if d.skipDrain {
