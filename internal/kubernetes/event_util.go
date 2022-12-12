@@ -99,21 +99,6 @@ func GetSharedSpan(obj *core.Node, parentOperation string) ddtrace.SpanContext {
 	return parent
 }
 
-func CreateNodeSpan(parent ddtrace.SpanContext, operationName string, opts ...tracer.StartSpanOption) tracer.Span {
-	tracerOpts := []tracer.StartSpanOption{
-		tracer.ServiceName("draino"),
-		tracer.ResourceName("node_drain"),
-		tracer.ChildOf(parent),
-	}
-	tracerOpts = append(tracerOpts, opts...)
-	span := tracer.StartSpan(
-		operationName,
-		tracerOpts...,
-	)
-
-	return span
-}
-
 func generateSpanID(prefix, operation, uid string) uint64 {
 	digest := xxhash_v2.New()
 	// Below methods are specified in both code and documentation to always return "len(s), nil" so we can safely ignore
