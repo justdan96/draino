@@ -52,7 +52,7 @@ func createSpan(ctx context.Context, operationName string, name string, eventTyp
 func addNodeEventAnnotations(annotations map[string]string, node *core.Node) {
 	drainStatus, _ := GetDrainConditionStatus(node)
 	annotations[nodeUidKey] = string(node.UID)
-	annotations[drainAttemptKey] = string(drainStatus.FailedCount)
+	annotations[drainAttemptKey] = fmt.Sprint(drainStatus.FailedCount)
 }
 
 func (e *eventRecorder) NodeEventf(ctx context.Context, obj *core.Node, eventType, reason, messageFmt string, args ...interface{}) {
