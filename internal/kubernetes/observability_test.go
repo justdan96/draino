@@ -18,9 +18,12 @@ import (
 )
 
 func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
-	getNode := func(labelValue string) *v1.Node {
+	getNode := func(configLabelValue, outOfScopeLabelValue string) *v1.Node {
 		return &v1.Node{
-			ObjectMeta: meta.ObjectMeta{Labels: map[string]string{ConfigurationLabelKey: labelValue}},
+			ObjectMeta: meta.ObjectMeta{Labels: map[string]string{
+				ConfigurationLabelKey: configLabelValue,
+				fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): outOfScopeLabelValue,
+			}},
 		}
 	}
 	tests := []struct {
@@ -30,7 +33,7 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 		podFilterFunc     PodFilterFunc
 		objects           []runtime.Object
 		node              *v1.Node
-		expectedValue     string
+		expectedValue     map[string]string
 		expectedOutOfDate bool
 		expectedError     string
 	}{
@@ -40,8 +43,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return false }, // not in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode(""),
-			expectedValue:     OutOfScopeLabelValue,
+			node:              getNode("", ""),
+			expectedValue:     map[string]string{ConfigurationLabelKey: OutOfScopeLabelValue, fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): "node-label"},
 			expectedOutOfDate: true,
 		},
 		{
@@ -50,8 +53,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return false }, // not in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode(OutOfScopeLabelValue),
-			expectedValue:     OutOfScopeLabelValue,
+			node:              getNode(OutOfScopeLabelValue, "node-label"),
+			expectedValue:     map[string]string{ConfigurationLabelKey: OutOfScopeLabelValue, fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): "node-label"},
 			expectedOutOfDate: false,
 		},
 		{
@@ -60,8 +63,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return true }, // in scope for node
 			podFilterFunc:     func(p v1.Pod) (pass bool, reason string, err error) { return false, "test", nil },
 			objects:           []runtime.Object{&v1.Pod{}},
-			node:              getNode(OutOfScopeLabelValue),
-			expectedValue:     OutOfScopeLabelValue,
+			node:              getNode(OutOfScopeLabelValue, "test"),
+			expectedValue:     map[string]string{ConfigurationLabelKey: OutOfScopeLabelValue, fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): "test"},
 			expectedOutOfDate: false,
 		},
 		{
@@ -72,8 +75,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 				return true, "test", fmt.Errorf("error path test")
 			},
 			objects:           []runtime.Object{&v1.Pod{}},
-			node:              getNode(OutOfScopeLabelValue),
-			expectedValue:     OutOfScopeLabelValue,
+			node:              getNode(OutOfScopeLabelValue, "test"),
+			expectedValue:     nil,
 			expectedOutOfDate: false,
 			expectedError:     "error path test",
 		},
@@ -83,8 +86,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return true }, // in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode(""),
-			expectedValue:     "draino1",
+			node:              getNode("", ""),
+			expectedValue:     map[string]string{ConfigurationLabelKey: "draino1", fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): ""},
 			expectedOutOfDate: true,
 		},
 		{
@@ -93,8 +96,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return true }, // in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode(OutOfScopeLabelValue),
-			expectedValue:     "draino1",
+			node:              getNode(OutOfScopeLabelValue, "node-label"),
+			expectedValue:     map[string]string{ConfigurationLabelKey: "draino1", fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): ""},
 			expectedOutOfDate: true,
 		},
 		{
@@ -103,8 +106,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return true },                                        // in scope node
 			podFilterFunc:     func(p v1.Pod) (pass bool, reason string, err error) { return true, "test", nil }, // in scope pod
 			objects:           []runtime.Object{&v1.Pod{}},
-			node:              getNode(OutOfScopeLabelValue),
-			expectedValue:     "draino1",
+			node:              getNode(OutOfScopeLabelValue, "test"),
+			expectedValue:     map[string]string{ConfigurationLabelKey: "draino1", fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): ""},
 			expectedOutOfDate: true,
 		},
 		{
@@ -113,8 +116,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return true }, // in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode("draino1"),
-			expectedValue:     "draino1",
+			node:              getNode("draino1", ""),
+			expectedValue:     map[string]string{ConfigurationLabelKey: "draino1", fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): ""},
 			expectedOutOfDate: false,
 		},
 		{
@@ -123,8 +126,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return true }, // in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode("draino2"),
-			expectedValue:     "draino1.draino2",
+			node:              getNode("draino2", ""),
+			expectedValue:     map[string]string{ConfigurationLabelKey: "draino1.draino2", fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): ""},
 			expectedOutOfDate: true,
 		},
 		{
@@ -133,8 +136,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return false }, // not in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode("draino1"),
-			expectedValue:     OutOfScopeLabelValue,
+			node:              getNode("draino1", ""),
+			expectedValue:     map[string]string{ConfigurationLabelKey: OutOfScopeLabelValue, fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): "node-label"},
 			expectedOutOfDate: true,
 		},
 		{
@@ -143,8 +146,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return false }, // not in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode("draino1.other-draino"),
-			expectedValue:     "other-draino",
+			node:              getNode("draino1.other-draino", ""),
+			expectedValue:     map[string]string{ConfigurationLabelKey: "other-draino", fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): "node-label"},
 			expectedOutOfDate: true,
 		},
 		{
@@ -153,8 +156,8 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 			nodeFilterFunc:    func(obj interface{}) bool { return true }, // in scope
 			podFilterFunc:     NewPodFilters(),
 			objects:           []runtime.Object{},
-			node:              getNode("draino2.draino1"),
-			expectedValue:     "draino1.draino2",
+			node:              getNode("draino2.draino1", ""),
+			expectedValue:     map[string]string{ConfigurationLabelKey: "draino1.draino2", fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, "draino1"): ""},
 			expectedOutOfDate: true,
 		},
 	}
@@ -172,9 +175,10 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 				logger:             zap.NewNop(),
 			}
 
-			wait.PollImmediate(200*time.Millisecond, 5*time.Second, func() (done bool, err error) {
+			err := wait.PollImmediate(200*time.Millisecond, 5*time.Second, func() (done bool, err error) {
 				return s.runtimeObjectStore.HasSynced(), nil
 			})
+			require.NoError(t, err)
 
 			actualValue, actualOutOfDate, err := s.getLabelUpdate(tt.node)
 			if tt.expectedError != "" {

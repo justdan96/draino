@@ -21,10 +21,11 @@ import (
 )
 
 const (
-	ConfigurationLabelKey    = "node-lifecycle.datadoghq.com/draino-configuration"
-	OutOfScopeLabelValue     = "out-of-scope"
-	nodeOptionsMetricName    = "node_options_nodes_total"
-	nodeOptionsCPUMetricName = "node_options_cpu_total"
+	ConfigurationLabelKey          = "node-lifecycle.datadoghq.com/draino-configuration"
+	OutOfScopeLabelValue           = "out-of-scope"
+	OutOfScopeReasonLabelKeyFormat = "node-lifecycle.datadoghq.com/%s-out-of-scope-reason"
+	nodeOptionsMetricName          = "node_options_nodes_total"
+	nodeOptionsCPUMetricName       = "node_options_cpu_total"
 )
 
 type DrainoConfigurationObserver interface {
@@ -198,7 +199,8 @@ type inScopeCPUMetrics map[inScopeCPUTags]int64
 func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 	ticker := time.NewTicker(s.analysisPeriod)
 	// Wait for the informer to sync before starting
-	wait.PollImmediateInfinite(10*time.Second, func() (done bool, err error) {
+	// ignoring returned err because Infinite cannot time out and supplied condition func doesn't error
+	_ = wait.PollImmediateInfinite(10*time.Second, func() (done bool, err error) {
 		return s.runtimeObjectStore.Pods().HasSynced(), nil
 	})
 
@@ -330,9 +332,15 @@ func (s *DrainoConfigurationObserverImpl) addNodeToQueue(node *v1.Node) {
 
 // getLabelUpdate returns the label value the node should have and whether or not the label
 // value is currently out of date (not equal to first return value)
-func (s *DrainoConfigurationObserverImpl) getLabelUpdate(node *v1.Node) (string, bool, error) {
-	valueOriginal := node.Labels[ConfigurationLabelKey]
-	configsOriginal := strings.Split(valueOriginal, ".")
+func (s *DrainoConfigurationObserverImpl) getLabelUpdate(node *v1.Node) (map[string]string, bool, error) {
+	inScope, reason, err := s.IsInScope(node)
+	if err != nil {
+		return nil, false, err
+	}
+	LogForVerboseNode(s.logger, node, "InScope information", zap.Bool("inScope", inScope), zap.String("reason", reason))
+
+	configValueOriginal := node.Labels[ConfigurationLabelKey]
+	configsOriginal := strings.Split(configValueOriginal, ".")
 	var configs []string
 	for _, config := range configsOriginal {
 		if config == "" || config == OutOfScopeLabelValue || config == s.globalConfig.ConfigName {
@@ -340,11 +348,6 @@ func (s *DrainoConfigurationObserverImpl) getLabelUpdate(node *v1.Node) (string,
 		}
 		configs = append(configs, config)
 	}
-	inScope, reason, err := s.IsInScope(node)
-	if err != nil {
-		return "", false, err
-	}
-	LogForVerboseNode(s.logger, node, "InScope information", zap.Bool("inScope", inScope), zap.String("reason", reason))
 	if inScope {
 		configs = append(configs, s.globalConfig.ConfigName)
 	}
@@ -353,21 +356,20 @@ func (s *DrainoConfigurationObserverImpl) getLabelUpdate(node *v1.Node) (string,
 		configs = append(configs, OutOfScopeLabelValue)
 	}
 	sort.Strings(configs)
-	valueDesired := strings.Join(configs, ".")
-	return valueDesired, valueDesired != valueOriginal, nil
+	configValueDesired := strings.Join(configs, ".")
+
+	outOfScopeReasonLabelKey := fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, s.globalConfig.ConfigName)
+	originalReason := node.Labels[outOfScopeReasonLabelKey]
+	desiredReason := reason
+
+	labelsDesired := map[string]string{ConfigurationLabelKey: configValueDesired, outOfScopeReasonLabelKey: desiredReason}
+	return labelsDesired, configValueDesired != configValueOriginal || desiredReason != originalReason, nil
 }
 
 // IsInScope return if the node is in scope of the running configuration. If not it also return the reason for not being in scope.
 func (s *DrainoConfigurationObserverImpl) IsInScope(node *v1.Node) (inScope bool, reasonIfnOtInScope string, err error) {
 	if !s.nodeFilterFunc(node) {
-		return false, "labelSelection", nil
-	}
-
-	if hasLabel, enabled := IsNodeNLAEnableByLabel(node); hasLabel {
-		if !enabled {
-			return false, "Node label explicit opt-out", nil
-		}
-		return true, "", nil
+		return false, "node-label", nil
 	}
 
 	var pods []*v1.Pod
@@ -441,7 +443,7 @@ func (s *DrainoConfigurationObserverImpl) patchNodeLabels(nodeName string) error
 		if node.Annotations == nil {
 			node.Annotations = map[string]string{}
 		}
-		err := PatchNodeLabelKey(s.globalConfig.Context, s.kclient, nodeName, ConfigurationLabelKey, desiredValue)
+		err := PatchNodeLabelKey(s.globalConfig.Context, s.kclient, nodeName, desiredValue)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				return nil

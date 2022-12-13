@@ -37,11 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/clientcmd/api"
-
-	kubernetestrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/k8s.io/client-go/kubernetes"
 )
 
 // Component is the name of this application.
@@ -63,28 +58,6 @@ const (
 	TaintNodeNetworkUnavailable = "node.kubernetes.io/network-unavailable"
 )
 
-// BuildConfigFromFlags is clientcmd.BuildConfigFromFlags with no annoying
-// dependencies on glog.
-// https://godoc.org/k8s.io/client-go/tools/clientcmd#BuildConfigFromFlags
-func BuildConfigFromFlags(apiserver, kubecfg string) (*rest.Config, error) {
-	var config *rest.Config
-	var err error
-
-	if kubecfg != "" || apiserver != "" {
-		config, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-			&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubecfg},
-			&clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{Server: apiserver}}).ClientConfig()
-	} else {
-		config, err = rest.InClusterConfig()
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	config.WrapTransport = kubernetestrace.WrapRoundTripper
-	return config, nil
-}
-
 // RetryWithTimeout this function retries till the function f return a nil error or timeout expire
 // Note the intermediate error trigger the retry and are dropped.
 func RetryWithTimeout(f func() error, retryPeriod, timeout time.Duration) error {
@@ -96,8 +69,6 @@ func RetryWithTimeout(f func() error, retryPeriod, timeout time.Duration) error 
 			return true, nil
 		})
 }
-
-var DummyErrorForRetry = errors.New("retry on error")
 
 func GetAPIResources(discoveryClient discovery.DiscoveryInterface, logger *zap.Logger) ([]metav1.APIResource, error) {
 	groupList, err := discoveryClient.ServerGroups()
@@ -322,9 +293,9 @@ func PatchDeleteNodeAnnotationKey(ctx context.Context, kclient kubernetes.Interf
 	return PatchNode(ctx, kclient, nodeName, annotationDeletePatch)
 }
 
-func PatchNodeLabelKey(ctx context.Context, kclient kubernetes.Interface, nodeName string, key string, value string) error {
+func PatchNodeLabelKey(ctx context.Context, kclient kubernetes.Interface, nodeName string, labels map[string]string) error {
 	var labelPatch LabelPatch
-	labelPatch.Metadata.Labels = map[string]string{key: value}
+	labelPatch.Metadata.Labels = labels
 	return PatchNode(ctx, kclient, nodeName, labelPatch)
 }
 

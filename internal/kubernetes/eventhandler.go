@@ -76,8 +76,6 @@ const (
 
 	drainoConditionsAnnotationKey       = "draino.planet.com/conditions"
 	drainoConditionsAnnotationSeparator = "|" // Must be different than SuppliedConditionDurationSeparator else that would cause parsin problems
-
-	NodeNLAEnableLabelKey = "node-lifecycle.datadoghq.com/enabled"
 )
 
 func init() {
@@ -459,34 +457,10 @@ func (h *DrainingResourceEventHandler) HandleNode(ctx context.Context, n *core.N
 	}
 }
 
-func IsNodeNLAEnableByLabel(n *core.Node) (hasLabel, enabled bool) {
-	if n.Labels == nil {
-		return false, true
-	}
-	v, ok := n.Labels[NodeNLAEnableLabelKey]
-	if !ok {
-		return false, true
-	}
-
-	switch v {
-	case "true":
-		return true, true
-	case "false":
-		return true, false
-	}
-
-	return false, true // unknown label value is just like if the label does not exist
-}
-
 // checkCordonFilters return true if the filtering is ok to proceed
 // if the node is labeled with `node-lifecycle.datadoghq.com/enabled` we do not check the pod and use the value set on the node
 func (h *DrainingResourceEventHandler) checkCordonFilters(ctx context.Context, n *core.Node) bool {
 	if h.cordonFilter != nil && h.objectsStore != nil && h.objectsStore.Pods() != nil {
-
-		if hasLabel, enabled := IsNodeNLAEnableByLabel(n); hasLabel {
-			return enabled
-		}
-
 		pods, err := h.objectsStore.Pods().ListPodsForNode(n.Name)
 		if err != nil {
 			h.logger.Error("cannot retrieve pods for node", zap.Error(err), zap.String("node", n.Name))
