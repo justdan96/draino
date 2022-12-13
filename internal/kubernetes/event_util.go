@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	nodeUidKey = "node-lifecycle.datadoghq.com/node-uid"
-	podUidKey  = "node-lifecycle.datadoghq.com/pod-uid"
+	nodeUidKey      = "node-lifecycle.datadoghq.com/node-uid"
+	podUidKey       = "node-lifecycle.datadoghq.com/pod-uid"
+	drainAttemptKey = "node-lifecycle.datadoghq.com/drain-attempt"
 )
 
 // This interface centralizes all k8s event interaction for this project.
@@ -48,18 +49,25 @@ func createSpan(ctx context.Context, operationName string, name string, eventTyp
 	return span, ctx
 }
 
+func addNodeEventAnnotations(annotations map[string]string, node *core.Node) {
+	drainStatus, _ := GetDrainConditionStatus(node)
+	annotations[nodeUidKey] = string(node.UID)
+	annotations[drainAttemptKey] = string(drainStatus.FailedCount)
+}
+
 func (e *eventRecorder) NodeEventf(ctx context.Context, obj *core.Node, eventType, reason, messageFmt string, args ...interface{}) {
 	span, _ := createSpan(ctx, "NodeEvent", obj.GetName(), eventType, reason, messageFmt, args...)
 	defer span.Finish()
+
+	annotations := map[string]string{}
+	addNodeEventAnnotations(annotations, obj)
 
 	// Events must be associated with this object reference, rather than the
 	// node itself, in order to appear under `kubectl describe node` due to the
 	// way that command is implemented.
 	// https://github.com/kubernetes/kubernetes/blob/17740a2/pkg/printers/internalversion/describe.go#L2711
 	nodeReference := &core.ObjectReference{Kind: "Node", Name: obj.GetName(), UID: types.UID(obj.GetName())}
-	e.eventRecorder.AnnotatedEventf(nodeReference, map[string]string{
-		nodeUidKey: string(obj.UID),
-	}, eventType, reason, messageFmt, args...)
+	e.eventRecorder.AnnotatedEventf(nodeReference, annotations, eventType, reason, messageFmt, args...)
 }
 
 func (e *eventRecorder) PodEventf(ctx context.Context, pod *core.Pod, node *core.Node, eventType, reason, messageFmt string, args ...interface{}) {
@@ -70,7 +78,7 @@ func (e *eventRecorder) PodEventf(ctx context.Context, pod *core.Pod, node *core
 		podUidKey: string(pod.UID),
 	}
 	if node != nil {
-		annotations[nodeUidKey] = string(node.UID)
+		addNodeEventAnnotations(annotations, node)
 	}
 
 	e.eventRecorder.AnnotatedEventf(pod, annotations, eventType, reason, messageFmt, args...)
