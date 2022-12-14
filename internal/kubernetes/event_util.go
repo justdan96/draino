@@ -49,25 +49,14 @@ func createSpan(ctx context.Context, operationName string, name string, eventTyp
 	return span, ctx
 }
 
-func addNodeEventAnnotations(reason string, annotations map[string]string, node *core.Node) {
-	drainStatus, err := GetDrainConditionStatus(node)
-	out := fmt.Sprintf("[andy-test] Event %s, handling node: %s | %s\n", reason, node.UID, node.Name)
-	if err != nil {
-		// TODO(andy) cleanup
-		out += fmt.Sprintf("ERROR: failed to get node drain status: %v\n", err)
-	}
-	for _, condition := range node.Status.Conditions {
-		if string(condition.Type) != ConditionDrainedScheduled {
-			continue
-		}
-		out += fmt.Sprintf("Condition reason: %s\n", condition.Reason)
-		out += fmt.Sprintf("Condition status: %s\n", condition.Status)
-		out += fmt.Sprintf("Condition message: %s\n", condition.Message)
-		out += fmt.Sprintf("Drain failed count: %d\n", drainStatus.FailedCount)
-	}
-	fmt.Println(out)
+// message will be modified if non-nil
+func addNodeEventAnnotations(annotations map[string]string, node *core.Node, message *string) {
+	drainStatus, _ := GetDrainConditionStatus(node)
 	annotations[nodeUidKey] = string(node.UID)
 	annotations[drainAttemptKey] = fmt.Sprint(drainStatus.FailedCount)
+	if message != nil && drainStatus.FailedCount > 0 {
+		*message += fmt.Sprintf(" (drain attempt %d)", drainStatus.FailedCount)
+	}
 }
 
 func (e *eventRecorder) NodeEventf(ctx context.Context, obj *core.Node, eventType, reason, messageFmt string, args ...interface{}) {
@@ -75,7 +64,7 @@ func (e *eventRecorder) NodeEventf(ctx context.Context, obj *core.Node, eventTyp
 	defer span.Finish()
 
 	annotations := map[string]string{}
-	addNodeEventAnnotations(reason, annotations, obj)
+	addNodeEventAnnotations(annotations, obj, &messageFmt)
 
 	// Events must be associated with this object reference, rather than the
 	// node itself, in order to appear under `kubectl describe node` due to the
@@ -93,7 +82,7 @@ func (e *eventRecorder) PodEventf(ctx context.Context, pod *core.Pod, node *core
 		podUidKey: string(pod.UID),
 	}
 	if node != nil {
-		addNodeEventAnnotations(reason, annotations, node)
+		addNodeEventAnnotations(annotations, node, nil)
 	}
 
 	e.eventRecorder.AnnotatedEventf(pod, annotations, eventType, reason, messageFmt, args...)
