@@ -21,11 +21,12 @@ import (
 )
 
 const (
-	ConfigurationLabelKey          = "node-lifecycle.datadoghq.com/draino-configuration"
-	OutOfScopeLabelValue           = "out-of-scope"
-	OutOfScopeReasonLabelKeyFormat = "node-lifecycle.datadoghq.com/%s-out-of-scope-reason"
-	nodeOptionsMetricName          = "node_options_nodes_total"
-	nodeOptionsCPUMetricName       = "node_options_cpu_total"
+	ConfigurationLabelKey              = "node-lifecycle.datadoghq.com/draino-configuration"
+	OutOfScopeLabelValue               = "out-of-scope"
+	UserOptInViaPodAnnotationLabelKey  = "node-lifecycle.datadoghq.com/user-opt-in-via-pod-annotation"
+	UserOptOutViaPodAnnotationLabelKey = "node-lifecycle.datadoghq.com/user-opt-out-via-pod-annotation"
+	nodeOptionsMetricName              = "node_options_nodes_total"
+	nodeOptionsCPUMetricName           = "node_options_cpu_total"
 )
 
 type DrainoConfigurationObserver interface {
@@ -357,13 +358,22 @@ func (s *DrainoConfigurationObserverImpl) getLabelUpdate(node *v1.Node) (map[str
 	}
 	sort.Strings(configs)
 	configValueDesired := strings.Join(configs, ".")
+	labelsDesired := map[string]string{ConfigurationLabelKey: configValueDesired}
+	outOfDate := configValueDesired != configValueOriginal
 
-	outOfScopeReasonLabelKey := fmt.Sprintf(OutOfScopeReasonLabelKeyFormat, s.globalConfig.ConfigName)
-	originalReason := node.Labels[outOfScopeReasonLabelKey]
-	desiredReason := reason
+	// only update the following node labels from the standard config
+	// (database-with-local-data would give same result because opt-in/out pod annotations are identical for both configs)
+	if s.globalConfig.ConfigName == "standard" {
+		desiredOptIn := strconv.FormatBool(s.HasPodWithUserOptInAnnotation(node))
+		desiredOptOut := strconv.FormatBool(s.HasPodWithUserOptOutAnnotation(node))
+		originalOptIn := node.Labels[UserOptInViaPodAnnotationLabelKey]
+		originalOptOut := node.Labels[UserOptOutViaPodAnnotationLabelKey]
+		labelsDesired[UserOptInViaPodAnnotationLabelKey] = desiredOptIn
+		labelsDesired[UserOptOutViaPodAnnotationLabelKey] = desiredOptOut
+		outOfDate = outOfDate || desiredOptIn != originalOptIn || desiredOptOut != originalOptOut
+	}
 
-	labelsDesired := map[string]string{ConfigurationLabelKey: configValueDesired, outOfScopeReasonLabelKey: desiredReason}
-	return labelsDesired, configValueDesired != configValueOriginal || desiredReason != originalReason, nil
+	return labelsDesired, outOfDate, nil
 }
 
 // IsInScope return if the node is in scope of the running configuration. If not it also return the reason for not being in scope.
