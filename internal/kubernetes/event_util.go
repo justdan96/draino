@@ -51,7 +51,7 @@ func createSpan(ctx context.Context, operationName string, name string, eventTyp
 
 func addNodeEventAnnotations(reason string, annotations map[string]string, node *core.Node) {
 	drainStatus, err := GetDrainConditionStatus(node)
-	out := fmt.Sprintf("[andy-test] Handling node: %s | %s\n", node.UID, node.Name)
+	out := fmt.Sprintf("[andy-test] Event %s, handling node: %s | %s\n", reason, node.UID, node.Name)
 	if err != nil {
 		// TODO(andy) cleanup
 		out += fmt.Sprintf("ERROR: failed to get node drain status: %v\n", err)
