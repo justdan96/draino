@@ -49,8 +49,23 @@ func createSpan(ctx context.Context, operationName string, name string, eventTyp
 	return span, ctx
 }
 
-func addNodeEventAnnotations(annotations map[string]string, node *core.Node) {
-	drainStatus, _ := GetDrainConditionStatus(node)
+func addNodeEventAnnotations(reason string, annotations map[string]string, node *core.Node) {
+	drainStatus, err := GetDrainConditionStatus(node)
+	out := fmt.Sprintf("[andy-test] Handling node: %s | %s\n", node.UID, node.Name)
+	if err != nil {
+		// TODO(andy) cleanup
+		out += fmt.Sprintf("ERROR: failed to get node drain status: %v\n", err)
+	}
+	for _, condition := range node.Status.Conditions {
+		if string(condition.Type) != ConditionDrainedScheduled {
+			continue
+		}
+		out += fmt.Sprintf("Condition reason: %s\n", condition.Reason)
+		out += fmt.Sprintf("Condition status: %s\n", condition.Status)
+		out += fmt.Sprintf("Condition message: %s\n", condition.Message)
+		out += fmt.Sprintf("Drain failed count: %d\n", drainStatus.FailedCount)
+	}
+	fmt.Println(out)
 	annotations[nodeUidKey] = string(node.UID)
 	annotations[drainAttemptKey] = fmt.Sprint(drainStatus.FailedCount)
 }
@@ -60,7 +75,7 @@ func (e *eventRecorder) NodeEventf(ctx context.Context, obj *core.Node, eventTyp
 	defer span.Finish()
 
 	annotations := map[string]string{}
-	addNodeEventAnnotations(annotations, obj)
+	addNodeEventAnnotations(reason, annotations, obj)
 
 	// Events must be associated with this object reference, rather than the
 	// node itself, in order to appear under `kubectl describe node` due to the
@@ -78,7 +93,7 @@ func (e *eventRecorder) PodEventf(ctx context.Context, pod *core.Pod, node *core
 		podUidKey: string(pod.UID),
 	}
 	if node != nil {
-		addNodeEventAnnotations(annotations, node)
+		addNodeEventAnnotations(reason, annotations, node)
 	}
 
 	e.eventRecorder.AnnotatedEventf(pod, annotations, eventType, reason, messageFmt, args...)
