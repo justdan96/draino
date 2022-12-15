@@ -576,6 +576,8 @@ func (d *APICordonDrainer) MarkDrain(ctx context.Context, n *core.Node, when, fi
 					},
 				)
 			}
+			// TODO(andy) Remove
+			fmt.Printf("[andy-test] %s - Node condition: %s -> %s\n", nodeName, ConditionDrainedScheduled, msgPrefix+"Drain activity scheduled "+when.Format(time.RFC3339)+msgSuffix)
 			if _, err := d.c.CoreV1().Nodes().UpdateStatus(ctx, freshNode, meta.UpdateOptions{FieldManager: "draino"}); err != nil {
 				return err
 			}

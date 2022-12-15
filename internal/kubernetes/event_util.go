@@ -66,6 +66,9 @@ func (e *eventRecorder) NodeEventf(ctx context.Context, obj *core.Node, eventTyp
 	annotations := map[string]string{}
 	addNodeEventAnnotations(annotations, obj, &messageFmt)
 
+	// TODO(andy) Remove
+	fmt.Printf("[andy-test] %s - Node event: %s: %s\n", obj.Name, reason, fmt.Sprintf(messageFmt, args...))
+
 	// Events must be associated with this object reference, rather than the
 	// node itself, in order to appear under `kubectl describe node` due to the
 	// way that command is implemented.
