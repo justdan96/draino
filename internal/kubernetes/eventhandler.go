@@ -40,7 +40,7 @@ const (
 	eventReasonCordonBlockedByLimit = "CordonBlockedByLimit"
 	eventReasonCordonSucceeded      = "CordonSucceeded"
 	eventReasonCordonFailed         = "CordonFailed"
-	eventReasonCordonSkip           = "CordonSkip"
+	EventReasonCordonSkip           = "CordonSkip"
 
 	eventReasonUncordonStarting  = "UncordonStarting"
 	eventReasonUncordonSucceeded = "UncordonSucceeded"
@@ -368,7 +368,7 @@ func (h *DrainingResourceEventHandler) HandleNode(ctx context.Context, n *core.N
 		return
 	}
 	badConditionsStr := GetConditionsTypes(badConditions)
-	if !atLeastOneConditionAcceptedByTheNode(badConditionsStr, n) {
+	if !AtLeastOneConditionAcceptedByTheNode(badConditionsStr, n) {
 		LogForVerboseNode(hlogger, n, "Conditions filter rejects that node")
 		h.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonConditionFiltered, fmt.Sprintf("Proposed condition(s) {%s} are not eligible for that node", strings.Join(badConditionsStr, ",")))
 		return
@@ -505,8 +505,8 @@ func (h *DrainingResourceEventHandler) checkCordonFilters(ctx context.Context, n
 			if !ok {
 				tags, _ := tag.New(tags, tag.Upsert(TagReason, reason))
 				StatRecordForEachCondition(tags, n, h.globalConfig.SuppliedConditions, MeasureSkippedCordon.M(1))
-				h.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, eventReasonCordonSkip, "Pod %s/%s is not in eviction scope", pod.Namespace, pod.Name)
-				h.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, eventReasonCordonSkip, "Pod is blocking cordon/drain for node %s", n.Name)
+				h.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, EventReasonCordonSkip, "Pod %s/%s is not in eviction scope", pod.Namespace, pod.Name)
+				h.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, EventReasonCordonSkip, "Pod is blocking cordon/drain for node %s", n.Name)
 				h.logger.Debug("Cordon filter triggered", zap.String("node", n.Name), zap.String("pod", pod.Name))
 				return false
 			}

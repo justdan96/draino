@@ -71,43 +71,43 @@ func WithKubeClient(client client.Client) WithOption {
 	}
 }
 
-func (conf *Config) WithLogger(logger logr.Logger) WithOption {
+func WithLogger(logger logr.Logger) WithOption {
 	return func(conf *Config) {
 		conf.logger = &logger
 	}
 }
 
-func (conf *Config) WithPreprocessors(pre ...DrainPreProzessor) WithOption {
+func WithPreprocessors(pre ...DrainPreProzessor) WithOption {
 	return func(conf *Config) {
 		conf.preprocessors = append(conf.preprocessors, pre...)
 	}
 }
 
-func (conf *Config) WithRerun(rerun time.Duration) WithOption {
+func WithRerun(rerun time.Duration) WithOption {
 	return func(conf *Config) {
 		conf.rerunEvery = rerun
 	}
 }
 
-func (conf *Config) WithClock(c clock.Clock) WithOption {
+func WithClock(c clock.Clock) WithOption {
 	return func(conf *Config) {
 		conf.clock = c
 	}
 }
 
-func (conf *Config) WithRetryWall(wall drain.RetryWall) WithOption {
+func WithRetryWall(wall drain.RetryWall) WithOption {
 	return func(conf *Config) {
 		conf.retryWall = wall
 	}
 }
 
-func (conf *Config) WithDrainer(drainer kubernetes.Drainer) WithOption {
+func WithDrainer(drainer kubernetes.Drainer) WithOption {
 	return func(conf *Config) {
 		conf.drainer = drainer
 	}
 }
 
-func (conf *Config) WithSharedIndexInformer(inf index.GetSharedIndexInformer) WithOption {
+func WithSharedIndexInformer(inf index.GetSharedIndexInformer) WithOption {
 	return func(conf *Config) {
 		conf.sharedIndexInformer = inf
 	}

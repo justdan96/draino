@@ -85,6 +85,8 @@ type Options struct {
 	resetScopeLabel     bool
 	scopeAnalysisPeriod time.Duration
 
+	groupRunnerPeriod time.Duration
+
 	klogVerbosity int32
 
 	conditions         []string
@@ -118,6 +120,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.DurationVar(&opt.preprovisioningTimeout, "preprovisioning-timeout", kubernetes.DefaultPreprovisioningTimeout, "Timeout for a node to be preprovisioned before draining")
 	fs.DurationVar(&opt.preprovisioningCheckPeriod, "preprovisioning-check-period", kubernetes.DefaultPreprovisioningCheckPeriod, "Period to check if a node has been preprovisioned")
 	fs.DurationVar(&opt.scopeAnalysisPeriod, "scope-analysis-period", 5*time.Minute, "Period to run the scope analysis and generate metric")
+	fs.DurationVar(&opt.groupRunnerPeriod, "group-runner-period", 10*time.Second, "Period for running the group runner")
 
 	fs.StringSliceVar(&opt.nodeLabels, "node-label", []string{}, "(Deprecated) Nodes with this label will be eligible for cordoning and draining. May be specified multiple times")
 	fs.StringSliceVar(&opt.doNotEvictPodControlledBy, "do-not-evict-pod-controlled-by", []string{"", kubernetes.KindStatefulSet, kubernetes.KindDaemonSet},
@@ -225,6 +228,8 @@ func (o *Options) Validate() error {
 	if o.suppliedConditions, err = kubernetes.ParseConditions(o.conditions); err != nil {
 		return fmt.Errorf("one of the conditions is not correctly formatted: %#v", err)
 	}
-
+	if o.groupRunnerPeriod < time.Second {
+		return fmt.Errorf("group runner period should be at least 1s")
+	}
 	return nil
 }
