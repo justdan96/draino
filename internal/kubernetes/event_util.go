@@ -66,9 +66,6 @@ func (e *eventRecorder) NodeEventf(ctx context.Context, obj *core.Node, eventTyp
 	annotations := map[string]string{}
 	addNodeEventAnnotations(annotations, obj, &messageFmt)
 
-	// TODO(andy) Remove
-	fmt.Printf("[andy-test] %s - Node event: %s: %s\n", obj.Name, reason, fmt.Sprintf(messageFmt, args...))
-
 	// Events must be associated with this object reference, rather than the
 	// node itself, in order to appear under `kubectl describe node` due to the
 	// way that command is implemented.
@@ -101,7 +98,6 @@ func (e *eventRecorder) PersistentVolumeEventf(ctx context.Context, obj *core.Pe
 func GetSharedSpan(obj *core.Node, parentOperation string) ddtrace.SpanContext {
 	spanId := generateSpanID("nla-node-drain", parentOperation, string(obj.UID))
 	traceId := generateSpanID("nla-node-drain", "node_drain", string(obj.UID))
-	fmt.Println("andy-test: Span for node", obj.UID, "has ID", spanId)
 	// parent span that is never finished
 	parent, err := tracer.Extract(tracer.TextMapCarrier{
 		tracer.DefaultTraceIDHeader:  strconv.FormatUint(traceId, 10),
