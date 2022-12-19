@@ -10,21 +10,23 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/kubernetes/pkg/util/taints"
+	"k8s.io/utils/clock"
+	testing2 "k8s.io/utils/clock/testing"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
 
+var clockInTest clock.Clock
 var nowInTest = time.Now()
 
-func setNowForTest() {
-	// we must set the now the same way for the package during test
-	// else if we run them concurrently that could cause problem
-
-	now = func() time.Time {
-		return nowInTest
+func setClockForTest() clock.Clock {
+	if clockInTest != nil {
+		return clockInTest
 	}
+	clockInTest = testing2.NewFakeClock(nowInTest)
+	return clockInTest
 }
 
 func Test_candidateRunner_checkNodesLabels(t *testing.T) {
@@ -62,7 +64,7 @@ func Test_candidateRunner_checkNodesLabels(t *testing.T) {
 					return n.Labels["in"] == "ok"
 				},
 			}
-			if got := runner.checkNodesLabels(context.Background(), tt.nodes); !reflect.DeepEqual(got, tt.want) {
+			if got := runner.checkNodesLabels(tt.nodes); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("checkNodesLabels() = %v, want %v", got, tt.want)
 			}
 		})
@@ -93,7 +95,7 @@ func (f *fakeRetryWallWithDefinedTimeStamp) IsAboveAlertingThreshold(*corev1.Nod
 }
 
 func Test_candidateRunner_checkNodesRetryWall(t *testing.T) {
-	setNowForTest()
+	setClockForTest()
 	n1, n2, n3 := &corev1.Node{}, &corev1.Node{}, &corev1.Node{}
 
 	tests := []struct {
@@ -136,6 +138,7 @@ func Test_candidateRunner_checkNodesRetryWall(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := &candidateRunner{
 				retryWall: tt.retryWall,
+				clock:     setClockForTest(),
 			}
 			gotKeep, gotFilterOut := runner.checkNodesRetryWall(tt.nodes)
 			if !reflect.DeepEqual(gotKeep, tt.wantKeep) {
@@ -227,7 +230,7 @@ func Test_candidateRunner_checkAlreadyCandidates(t *testing.T) {
 			runner := &candidateRunner{
 				maxSimultaneousCandidates: tt.maxCandidate,
 			}
-			gotRemainingNodes, gotAlreadyCandidateNodes, gotMaxCandidateReached := runner.checkAlreadyCandidates(context.Background(), tt.nodes)
+			gotRemainingNodes, gotAlreadyCandidateNodes, gotMaxCandidateReached := runner.checkAlreadyCandidates(tt.nodes)
 			if !reflect.DeepEqual(gotRemainingNodes, tt.wantRemainingNodes) {
 				t.Errorf("checkAlreadyCandidates() gotRemainingNodes = %v, want %v", gotRemainingNodes, tt.wantRemainingNodes)
 			}
@@ -300,7 +303,7 @@ func Test_candidateRunner_checkCordonFilters(t *testing.T) {
 				objectsStore: store,
 				cordonFilter: tt.podFilterFunc,
 			}
-			if got := runner.checkCordonFilters(context.Background(), tt.nodes); !reflect.DeepEqual(got, tt.want) {
+			if got := runner.checkCordonFilters(tt.nodes); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("checkCordonFilters() = %v, want %v", got, tt.want)
 			}
 		})
@@ -401,11 +404,12 @@ func Test_candidateRunner_checkNodesHaveAtLeastOneCondition(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := &candidateRunner{
+				clock: setClockForTest(),
 				globalConfig: kubernetes.GlobalConfig{
 					SuppliedConditions: tt.conditions,
 				},
 			}
-			if got := runner.checkNodesHaveAtLeastOneCondition(context.Background(), tt.nodes); !reflect.DeepEqual(got, tt.want) {
+			if got := runner.checkNodesHaveAtLeastOneCondition(tt.nodes); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("checkNodesHaveAtLeastOneCondition() = %v, want %v", got, tt.want)
 			}
 		})

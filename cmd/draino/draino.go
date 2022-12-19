@@ -331,15 +331,17 @@ func main() {
 				EventRecorder: k8sEventRecorder,
 			},
 		)
+		if err != nil {
+			return fmt.Errorf("failed to create lock: %v", err)
+		}
+
 		filters := filtersDefinitions{
 			cordonPodFilter: cordonPodFilteringFunc,
 			drainPodFilter:  drainerSkipPodFilter,
 			nodeLabelFilter: nodeLabelFilterFunc,
 		}
-		controllerRuntimeBootstrap(options, cfg, cordonDrainer, filters, runtimeObjectStoreImpl, globalConfig, options.drainGroupLabelKey)
-
-		if err != nil {
-			return fmt.Errorf("failed to create lock: %v", err)
+		if err = controllerRuntimeBootstrap(options, cfg, cordonDrainer, filters, runtimeObjectStoreImpl, globalConfig); err != nil {
+			return fmt.Errorf("failed to bootstrap the controller runtime section")
 		}
 
 		leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
@@ -372,7 +374,9 @@ func main() {
 }
 
 func GetKubernetesClientSet(config *kubeclient.Config) (*client.Clientset, error) {
-	err := k8sclient.DecorateWithRateLimiter(config, "default")
+	if err := k8sclient.DecorateWithRateLimiter(config, "default"); err != nil {
+		return nil, err
+	}
 	c, err := kubeclient.NewKubeConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed create Kubernetes client configuration: %v", err)
@@ -421,7 +425,7 @@ type filtersDefinitions struct {
 }
 
 // controllerRuntimeBootstrap This function is not called, it is just there to prepare the ground in terms of dependencies for next step where we will include ControllerRuntime library
-func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config, drainer kubernetes.Drainer, filters filtersDefinitions, store kubernetes.RuntimeObjectStore, globalConfig kubernetes.GlobalConfig, drainGroupKeyLabel string) error {
+func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config, drainer kubernetes.Drainer, filters filtersDefinitions, store kubernetes.RuntimeObjectStore, globalConfig kubernetes.GlobalConfig) error {
 
 	cfg.InfraParam.UpdateWithKubeContext(cfg.KubeClientConfig.ConfigFile, "")
 	validationOptions := infraparameters.GetValidateAll()
@@ -475,41 +479,41 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	eventRecorder := kubernetes.NewEventRecorder(k8sEventRecorder)
 
 	drainRunnerFactory, err := drain_runner.NewFactory(
-		[]drain_runner.WithOption{
-			drain_runner.WithKubeClient(mgr.GetClient()),
-			drain_runner.WithClock(&clock.RealClock{}),
-			drain_runner.WithDrainer(drainer),
-			drain_runner.WithPreprocessors(), // TODO when we will add the pre-provisioning pre-processor
-			drain_runner.WithRerun(options.groupRunnerPeriod),
-			drain_runner.WithPreprocessors(),
-			drain_runner.WithRetryWall(retryWall),
-			drain_runner.WithLogger(mgr.GetLogger()),
-			drain_runner.WithSharedIndexInformer(indexer),
-		}...)
+		drain_runner.WithKubeClient(mgr.GetClient()),
+		drain_runner.WithClock(&clock.RealClock{}),
+		drain_runner.WithDrainer(drainer),
+		drain_runner.WithPreprocessors(), // TODO when we will add the pre-provisioning pre-processor
+		drain_runner.WithRerun(options.groupRunnerPeriod),
+		drain_runner.WithRetryWall(retryWall),
+		drain_runner.WithLogger(mgr.GetLogger()),
+		drain_runner.WithSharedIndexInformer(indexer),
+	)
 
 	drainCandidateRunnerFactory, err := candidate_runner.NewFactory(
-		[]candidate_runner.WithOption{
-			candidate_runner.WithDryRun(true), // TODO of course we want to remove that when we are ready
-			candidate_runner.WithKubeClient(mgr.GetClient()),
-			candidate_runner.WithClock(&clock.RealClock{}),
-			candidate_runner.WithRerun(options.groupRunnerPeriod),
-			candidate_runner.WithRetryWall(retryWall),
-			candidate_runner.WithLogger(mgr.GetLogger()),
-			candidate_runner.WithSharedIndexInformer(indexer),
-			candidate_runner.WithCordonPodFilter(filters.cordonPodFilter),
-			candidate_runner.WithEventRecorder(eventRecorder),
-			candidate_runner.WithRuntimeObjectStore(store),
-			candidate_runner.WithNodeLabelsFilterFunction(filters.nodeLabelFilter),
-			candidate_runner.WithGlobalConfig(globalConfig),
-			candidate_runner.WithMaxSimultaneousCandidates(1), // TODO should we move that to something that can be customized per user
-			candidate_runner.WithDrainSimulator(drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, filters.drainPodFilter)),
-			candidate_runner.WithNodeSorters(candidate_runner.NodeSorters{}),
-		}...)
+		candidate_runner.WithDryRun(true), // TODO of course we want to remove that when we are ready
+		candidate_runner.WithKubeClient(mgr.GetClient()),
+		candidate_runner.WithClock(&clock.RealClock{}),
+		candidate_runner.WithRerun(options.groupRunnerPeriod),
+		candidate_runner.WithRetryWall(retryWall),
+		candidate_runner.WithLogger(mgr.GetLogger()),
+		candidate_runner.WithSharedIndexInformer(indexer),
+		candidate_runner.WithCordonPodFilter(filters.cordonPodFilter),
+		candidate_runner.WithEventRecorder(eventRecorder),
+		candidate_runner.WithRuntimeObjectStore(store),
+		candidate_runner.WithNodeLabelsFilterFunction(filters.nodeLabelFilter),
+		candidate_runner.WithGlobalConfig(globalConfig),
+		candidate_runner.WithMaxSimultaneousCandidates(1), // TODO should we move that to something that can be customized per user
+		candidate_runner.WithDrainSimulator(drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, filters.drainPodFilter)),
+		candidate_runner.WithNodeSorters(candidate_runner.NodeSorters{}),
+	)
 
-	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(drainGroupKeyLabel, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
+	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
 
 	groupRegistry := groups.NewGroupRegistry(ctx, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory)
-	groupRegistry.SetupWithManager(mgr)
+	if err = groupRegistry.SetupWithManager(mgr); err != nil {
+		logger.Error(err, "failed to setup groupRegistry")
+		return err
+	}
 
 	logger.Info("ControllerRuntime bootstrap")
 	return nil

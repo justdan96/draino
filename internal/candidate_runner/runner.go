@@ -23,8 +23,6 @@ import (
 // Make sure that the drain runner is implementing the group runner interface
 var _ groups.Runner = &candidateRunner{}
 
-var now = time.Now
-
 type NodeSorters []scheduler.LessFunc[*corev1.Node]
 type NodeIteratorFactory func([]*corev1.Node, NodeSorters) scheduler.ItemProvider[*corev1.Node]
 
@@ -53,7 +51,7 @@ type candidateRunner struct {
 func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 	ctx, cancel := context.WithCancel(info.Context)
 
-	// TODO if we add metrics addociated with that key, when the group is closed we should purge all the series associated with that key (cleanup-gauges with groupKey=...)?
+	// TODO if we add metrics associated with that key, when the group is closed we should purge all the series associated with that key (cleanup-gauges with groupKey=...)?
 	runner.logger = runner.logger.WithValues("groupKey", info.Key)
 	// run an endless loop until there are no drain candidates left
 	wait.UntilWithContext(ctx, func(ctx context.Context) {
@@ -76,9 +74,7 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		// TODO is there a better order for filter that would use less time/resources ?
 
 		// filter nodes that are already candidate
-		var maxReached bool
-		var alreadyCandidateNodes []*corev1.Node
-		nodes, alreadyCandidateNodes, maxReached = runner.checkAlreadyCandidates(ctx, nodes)
+		nodes, alreadyCandidateNodes, maxReached := runner.checkAlreadyCandidates(nodes)
 		if maxReached {
 			runner.logger.Info("Max candidate already reached", "count", runner.maxSimultaneousCandidates, "nodes", strings.Join(utils.NodesNames(alreadyCandidateNodes), ","))
 			return
@@ -86,21 +82,21 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		remainCandidateSlot := runner.maxSimultaneousCandidates - len(alreadyCandidateNodes)
 
 		// check SuppliedConditions
-		nodes = runner.checkNodesHaveAtLeastOneCondition(ctx, nodes)
+		nodes = runner.checkNodesHaveAtLeastOneCondition(nodes)
 		if len(nodes) == 0 {
 			runner.logger.Info("No node with condition")
 			return
 		}
 
 		// check that the node has the correct labels to be in scope
-		nodes = runner.checkNodesLabels(ctx, nodes)
+		nodes = runner.checkNodesLabels(nodes)
 		if len(nodes) == 0 {
 			runner.logger.Info("No node with expected labels")
 			return
 		}
 
 		// filter nodes that are not in scope
-		nodes = runner.checkCordonFilters(ctx, nodes)
+		nodes = runner.checkCordonFilters(nodes)
 		if len(nodes) == 0 {
 			runner.logger.Info("No node that accept cordon filters")
 			return
@@ -137,7 +133,7 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 
 			logForNode.Info("Adding drain candidate taint")
 			if !runner.dryRun {
-				if _, errTaint := k8sclient.AddNLATaint(ctx, runner.client, node, now(), k8sclient.TaintDrainCandidate); errTaint != nil {
+				if _, errTaint := k8sclient.AddNLATaint(ctx, runner.client, node, runner.clock.Now(), k8sclient.TaintDrainCandidate); errTaint != nil {
 					logForNode.Error(errTaint, "Failed to taint node")
 					continue // let's try next node, maybe this one has a problem
 				}
@@ -154,7 +150,7 @@ func (runner *candidateRunner) checkNodesRetryWall(nodes []*corev1.Node) (keep, 
 	keep = make([]*corev1.Node, 0, len(nodes)) // high probability that all nodes are to be kept
 	filterOut = make([]*corev1.Node, 0, 10)    // it is possible that we have some nodes with retryWalls
 	for _, n := range nodes {
-		if runner.retryWall.GetRetryWallTimestamp(n).After(now()) {
+		if runner.retryWall.GetRetryWallTimestamp(n).After(runner.clock.Now()) {
 			filterOut = append(filterOut, n)
 		} else {
 			keep = append(keep, n)
@@ -177,14 +173,14 @@ func (runner *candidateRunner) checkNodesTerminating(nodes []*corev1.Node) (keep
 	return keep, filterOut
 }
 
-func (runner *candidateRunner) checkNodesLabels(ctx context.Context, nodes []*corev1.Node) []*corev1.Node {
+func (runner *candidateRunner) checkNodesLabels(nodes []*corev1.Node) []*corev1.Node {
 	// TODO add tracing to see how much expensive this is. There is an expression evaluation at each call.
 	if runner.nodeLabelsFilterFunc == nil {
 		return nil
 	}
 	var remainingNodes []*corev1.Node
 	for _, n := range nodes {
-		if runner.CheckNodeLabels(ctx, n).InScope {
+		if runner.CheckNodeLabels(n).InScope {
 			remainingNodes = append(remainingNodes, n)
 		}
 	}
@@ -196,7 +192,7 @@ type NodeLabelResult struct {
 	InScope bool
 }
 
-func (runner *candidateRunner) CheckNodeLabels(ctx context.Context, n *corev1.Node) NodeLabelResult {
+func (runner *candidateRunner) CheckNodeLabels(n *corev1.Node) NodeLabelResult {
 	if runner.nodeLabelsFilterFunc == nil {
 		return NodeLabelResult{
 			Node:    n,
@@ -212,7 +208,7 @@ func (runner *candidateRunner) CheckNodeLabels(ctx context.Context, n *corev1.No
 }
 
 // checkAlreadyCandidates keep only the nodes that are not candidate. If maxSimultaneousCandidates>0, then we check against the max. If max is reached a nil slice is returned and the boolean returned is true
-func (runner *candidateRunner) checkAlreadyCandidates(ctx context.Context, nodes []*corev1.Node) (remainingNodes, alreadyCandidateNodes []*corev1.Node, maxCandidateReached bool) {
+func (runner *candidateRunner) checkAlreadyCandidates(nodes []*corev1.Node) (remainingNodes, alreadyCandidateNodes []*corev1.Node, maxCandidateReached bool) {
 	remainingNodes = make([]*corev1.Node, 0, len(nodes)) // high probability that all nodes are to be kept
 	alreadyCandidateNodes = make([]*corev1.Node, 0, runner.maxSimultaneousCandidates)
 	for _, n := range nodes {
@@ -232,14 +228,14 @@ func (runner *candidateRunner) checkAlreadyCandidates(ctx context.Context, nodes
 
 // checkCordonFilters return true if the filtering is ok to proceed
 // if the node is labeled with `node-lifecycle.datadoghq.com/enabled` we do not check the pod and use the value set on the node
-func (runner *candidateRunner) checkCordonFilters(ctx context.Context, nodes []*corev1.Node) []*corev1.Node {
+func (runner *candidateRunner) checkCordonFilters(nodes []*corev1.Node) []*corev1.Node {
 	if runner.cordonFilter == nil || runner.objectsStore == nil || runner.objectsStore.Pods() == nil {
 		return nil
 	}
 
 	remainingNodes := make([]*corev1.Node, 0, len(nodes)) // high probability that all nodes are to be kept
 	for _, n := range nodes {
-		if runner.CheckCordonFiltersForNode(ctx, n).CanCordon {
+		if runner.CheckCordonFiltersForNode(n).CanCordon {
 			remainingNodes = append(remainingNodes, n)
 		}
 	}
@@ -256,7 +252,7 @@ type CordonFilterResult struct {
 // CheckCordonFiltersForNode check if a node can be cordon.
 // TODO call this function every X minutes to diagnostic and report event EventReasonCordonSkip on pod and nodes
 // TODO can also be called from the CLI to deliver diagnostics
-func (runner *candidateRunner) CheckCordonFiltersForNode(ctx context.Context, n *corev1.Node) CordonFilterResult {
+func (runner *candidateRunner) CheckCordonFiltersForNode(n *corev1.Node) CordonFilterResult {
 	if runner.cordonFilter == nil || runner.objectsStore == nil || runner.objectsStore.Pods() == nil {
 		return CordonFilterResult{
 			Node:      n,
@@ -300,10 +296,10 @@ func (runner *candidateRunner) CheckCordonFiltersForNode(ctx context.Context, n 
 	}
 }
 
-func (runner *candidateRunner) checkNodesHaveAtLeastOneCondition(ctx context.Context, nodes []*corev1.Node) []*corev1.Node {
+func (runner *candidateRunner) checkNodesHaveAtLeastOneCondition(nodes []*corev1.Node) []*corev1.Node {
 	remainingNodes := make([]*corev1.Node, 0, len(nodes)/10) // Low probability that all nodes are to be kept
 	for _, n := range nodes {
-		r := runner.CheckNodeConditions(ctx, n)
+		r := runner.CheckNodeConditions(n)
 		if len(r.Conditions) > 0 && !r.Rejected {
 			remainingNodes = append(remainingNodes, n)
 		}
@@ -311,7 +307,7 @@ func (runner *candidateRunner) checkNodesHaveAtLeastOneCondition(ctx context.Con
 	return remainingNodes
 }
 
-type NodeConditonsResult struct {
+type NodeConditionsResult struct {
 	Node       *corev1.Node
 	Conditions []kubernetes.SuppliedCondition
 	Rejected   bool
@@ -320,25 +316,25 @@ type NodeConditonsResult struct {
 // CheckNodeConditions check if a node can be cordon.
 // TODO call this function every X minutes to diagnostic and report event eventReasonConditionFiltered on nodes
 // TODO can also be called from the CLI to deliver diagnostics
-func (runner *candidateRunner) CheckNodeConditions(ctx context.Context, n *corev1.Node) NodeConditonsResult {
+func (runner *candidateRunner) CheckNodeConditions(n *corev1.Node) NodeConditionsResult {
 
 	badConditions := kubernetes.GetNodeOffendingConditions(n, runner.globalConfig.SuppliedConditions)
 	kubernetes.LogrForVerboseNode(runner.logger, n, fmt.Sprintf("Offending conditions count %d", len(badConditions)))
 	if len(badConditions) == 0 {
-		return NodeConditonsResult{
+		return NodeConditionsResult{
 			Node: n,
 		}
 	}
 	badConditionsStr := kubernetes.GetConditionsTypes(badConditions)
 	if !kubernetes.AtLeastOneConditionAcceptedByTheNode(badConditionsStr, n) {
 		kubernetes.LogrForVerboseNode(runner.logger, n, "Conditions filter rejects that node")
-		return NodeConditonsResult{
+		return NodeConditionsResult{
 			Node:       n,
 			Conditions: badConditions,
 			Rejected:   true,
 		}
 	}
-	return NodeConditonsResult{
+	return NodeConditionsResult{
 		Node:       n,
 		Conditions: badConditions,
 		Rejected:   false,
