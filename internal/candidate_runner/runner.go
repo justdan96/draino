@@ -219,8 +219,8 @@ func (runner *candidateRunner) checkAlreadyCandidates(ctx context.Context, nodes
 		if _, hasTaint := k8sclient.GetNLATaint(n); !hasTaint {
 			remainingNodes = append(remainingNodes, n)
 		} else {
+			alreadyCandidateNodes = append(alreadyCandidateNodes, n)
 			if runner.maxSimultaneousCandidates > 0 {
-				alreadyCandidateNodes = append(alreadyCandidateNodes, n)
 				if len(alreadyCandidateNodes) >= runner.maxSimultaneousCandidates {
 					return nil, alreadyCandidateNodes, true
 				}
