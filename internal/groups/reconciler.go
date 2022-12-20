@@ -34,6 +34,7 @@ type GroupRegistry struct {
 	keyGetter                 GroupKeyGetter
 	groupDrainRunner          *GroupsRunner
 	groupDrainCandidateRunner *GroupsRunner
+	nodeFilteringFunc         kubernetes.NodeLabelFilterFunc
 }
 
 func NewGroupRegistry(
@@ -43,6 +44,7 @@ func NewGroupRegistry(
 	eventRecorder kubernetes.EventRecorder,
 	keyGetter GroupKeyGetter,
 	drainFactory, drainCandidateFactory RunnerFactory,
+	nodeFilteringFunc kubernetes.NodeLabelFilterFunc,
 ) *GroupRegistry {
 	return &GroupRegistry{
 		kclient:                   kclient,
@@ -52,6 +54,7 @@ func NewGroupRegistry(
 		groupDrainRunner:          NewGroupsRunner(ctx, drainFactory, logger, "drain"),
 		groupDrainCandidateRunner: NewGroupsRunner(ctx, drainCandidateFactory, logger, "drain_candidate"),
 		eventRecorder:             eventRecorder,
+		nodeFilteringFunc:         nodeFilteringFunc,
 	}
 }
 
@@ -63,6 +66,11 @@ func (r *GroupRegistry) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return reconcile.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get Node Fails: %v", err)
+	}
+
+	// discard all node that do not match the node filtering function
+	if r.nodeFilteringFunc != nil && !r.nodeFilteringFunc(node) {
+		return ctrl.Result{}, nil
 	}
 
 	if valid, reason := r.keyGetter.ValidateGroupKey(node); !valid {
@@ -85,7 +93,12 @@ func (r *GroupRegistry) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1.Node{}).
 		WithEventFilter(
 			predicate.Funcs{
-				CreateFunc:  func(event.CreateEvent) bool { return false }, // to early in the process the node might not be complete
+				CreateFunc: func(evt event.CreateEvent) bool {
+					if time.Now().Sub(evt.Object.GetCreationTimestamp().Time) < r.nodeWarmUpDelay {
+						return false // to early in the process the node might not be complete
+					}
+					return true
+				}, // we need to have create for the initial syn of the controller
 				DeleteFunc:  func(event.DeleteEvent) bool { return false }, // we don't care about delete, the runner will stop if the groups is empty
 				GenericFunc: func(event.GenericEvent) bool { return false },
 				UpdateFunc: func(evt event.UpdateEvent) bool {

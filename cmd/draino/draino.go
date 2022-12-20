@@ -510,7 +510,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 
 	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
 
-	groupRegistry := groups.NewGroupRegistry(ctx, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory)
+	groupRegistry := groups.NewGroupRegistry(ctx, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory, filters.nodeLabelFilter)
 	if err = groupRegistry.SetupWithManager(mgr); err != nil {
 		logger.Error(err, "failed to setup groupRegistry")
 		return err
