@@ -3,17 +3,16 @@ package drain
 import (
 	"context"
 	"fmt"
-	policyv1 "k8s.io/api/policy/v1"
-	policyv1beta1 "k8s.io/api/policy/v1beta1"
-	kubernetes2 "k8s.io/client-go/kubernetes"
-	"time"
-
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	policyv1beta1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"time"
 )
 
 const (
@@ -33,7 +32,7 @@ type DrainSimulator interface {
 type drainSimulatorImpl struct {
 	pdbIndexer index.PDBIndexer
 	podIndexer index.PodIndexer
-	client     kubernetes2.Interface
+	client     client.Client
 	// skipPodFilter will be used to evaluate if pods running on a node should go through the eviction simulation
 	skipPodFilter  kubernetes.PodFilterFunc
 	podResultCache utils.TTLCache[simulationResult]
@@ -48,7 +47,7 @@ var _ DrainSimulator = &drainSimulatorImpl{}
 
 func NewDrainSimulator(
 	ctx context.Context,
-	client kubernetes2.Interface,
+	client client.Client,
 	indexer *index.Indexer,
 	skipPodFilter kubernetes.PodFilterFunc,
 ) DrainSimulator {
@@ -149,7 +148,6 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 		sim.writePodCache(pod, false, reason)
 		return false, reason, nil
 	}
-
 	sim.writePodCache(pod, true, "")
 	return true, "", nil
 }
@@ -166,11 +164,10 @@ func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *cor
 			DryRun:             []string{"All"},
 		},
 	})
-	if err1 == nil {
-		//fmt.Println("eviction simulation succeeded for v1")
+	if err == nil {
 		return true, nil
 	}
-	err2 := sim.client.PolicyV1beta1().Evictions(pod.Namespace).Evict(ctx, &policyv1beta1.Eviction{
+	err = sim.client.SubResource("eviction").Create(ctx, pod, &policyv1beta1.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pod.GetName(),
 			Namespace: pod.GetNamespace(),
@@ -180,11 +177,11 @@ func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *cor
 			DryRun:             []string{"All"},
 		},
 	})
-	if err2 == nil {
-		//fmt.Println("eviction simulation succeeded for v1beta")
+	if err == nil {
 		return true, nil
 	}
-	return false, err2
+
+	return false, err
 }
 
 func (sim *drainSimulatorImpl) writePodCache(pod *corev1.Pod, result bool, reason string) {

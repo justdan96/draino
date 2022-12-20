@@ -25,6 +25,7 @@ import (
 	"github.com/planetlabs/draino/internal/drain_runner"
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
+	protector "github.com/planetlabs/draino/internal/protector"
 	"github.com/spf13/cobra"
 	policyv1 "k8s.io/api/policy/v1"
 	policyv1beta1 "k8s.io/api/policy/v1beta1"
@@ -348,7 +349,7 @@ func main() {
 			drainPodFilter:  drainerSkipPodFilter,
 			nodeLabelFilter: nodeLabelFilterFunc,
 		}
-		if err = controllerRuntimeBootstrap(options, cfg, cordonDrainer, filters, runtimeObjectStoreImpl, globalConfig); err != nil {
+		if err = controllerRuntimeBootstrap(options, cfg, cordonDrainer, filters, runtimeObjectStoreImpl, globalConfig, log); err != nil {
 			return fmt.Errorf("failed to bootstrap the controller runtime section: %v", err)
 		}
 
@@ -433,7 +434,7 @@ type filtersDefinitions struct {
 }
 
 // controllerRuntimeBootstrap This function is not called, it is just there to prepare the ground in terms of dependencies for next step where we will include ControllerRuntime library
-func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config, drainer kubernetes.Drainer, filters filtersDefinitions, store kubernetes.RuntimeObjectStore, globalConfig kubernetes.GlobalConfig) error {
+func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config, drainer kubernetes.Drainer, filters filtersDefinitions, store kubernetes.RuntimeObjectStore, globalConfig kubernetes.GlobalConfig, zlog *zap.Logger) error {
 
 	cfg.InfraParam.UpdateWithKubeContext(cfg.KubeClientConfig.ConfigFile, "")
 	validationOptions := infraparameters.GetValidateAll()
@@ -489,6 +490,8 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	k8sEventRecorder := b.NewRecorder(scheme.Scheme, core.EventSource{Component: kubernetes.Component})
 	eventRecorder := kubernetes.NewEventRecorder(k8sEventRecorder)
 
+	pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
+
 	drainRunnerFactory, err := drain_runner.NewFactory(
 		drain_runner.WithKubeClient(mgr.GetClient()),
 		drain_runner.WithClock(&clock.RealClock{}),
@@ -498,7 +501,11 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		drain_runner.WithRetryWall(retryWall),
 		drain_runner.WithLogger(mgr.GetLogger()),
 		drain_runner.WithSharedIndexInformer(indexer),
+		drain_runner.WithPVProtector(pvProtector),
 	)
+	if err != nil {
+		return err
+	}
 
 	drainCandidateRunnerFactory, err := candidate_runner.NewFactory(
 		candidate_runner.WithDryRun(true), // TODO of course we want to remove that when we are ready
@@ -514,9 +521,12 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		candidate_runner.WithNodeLabelsFilterFunction(filters.nodeLabelFilter),
 		candidate_runner.WithGlobalConfig(globalConfig),
 		candidate_runner.WithMaxSimultaneousCandidates(1), // TODO should we move that to something that can be customized per user
-		candidate_runner.WithDrainSimulator(drain.NewDrainSimulator(context.Background(), cs, indexer, filters.drainPodFilter)),
+		candidate_runner.WithDrainSimulator(drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, filters.drainPodFilter)),
 		candidate_runner.WithNodeSorters(candidate_runner.NodeSorters{}),
 	)
+	if err != nil {
+		return err
+	}
 
 	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
 
