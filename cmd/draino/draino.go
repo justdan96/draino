@@ -341,7 +341,7 @@ func main() {
 			nodeLabelFilter: nodeLabelFilterFunc,
 		}
 		if err = controllerRuntimeBootstrap(options, cfg, cordonDrainer, filters, runtimeObjectStoreImpl, globalConfig); err != nil {
-			return fmt.Errorf("failed to bootstrap the controller runtime section")
+			return fmt.Errorf("failed to bootstrap the controller runtime section: %v", err)
 		}
 
 		leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
@@ -461,7 +461,11 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		func(p core.Pod) (pass bool, reason string, err error) { return true, "", nil },
 	)
 
-	retryWall, errRW := drain.NewRetryWall(mgr.GetClient(), mgr.GetLogger())
+	staticRetryStrategy := &drain.StaticRetryStrategy{
+		AlertThreashold: 7,
+		Delay:           options.schedulingRetryBackoffDelay,
+	}
+	retryWall, errRW := drain.NewRetryWall(mgr.GetClient(), mgr.GetLogger(), staticRetryStrategy)
 	if errRW != nil {
 		return errRW
 	}
