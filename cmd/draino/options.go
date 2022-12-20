@@ -11,6 +11,7 @@ import (
 
 // Options collects the program options/parameters
 type Options struct {
+	noLegacyNodeHandler         bool
 	debug                       bool
 	listen                      string
 	kubecfg                     string
@@ -106,6 +107,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.BoolVar(&opt.preprovisioningActivatedByDefault, "preprovisioning-by-default", false, "Set this flag to activate pre-provisioning by default for all nodes")
 	fs.BoolVar(&opt.pvcManagementByDefault, "pvc-management-by-default", false, "PVC management is automatically activated for a workload that do not use eviction++")
 	fs.BoolVar(&opt.resetScopeLabel, "reset-config-labels", false, "Reset the scope label on the nodes")
+	fs.BoolVar(&opt.noLegacyNodeHandler, "no-legacy-node-handler", false, "Deactivate draino legacy node handler")
 
 	fs.DurationVar(&opt.minEvictionTimeout, "min-eviction-timeout", kubernetes.DefaultMinEvictionTimeout, "Minimum time we wait to evict a pod. The pod terminationGracePeriod will be used if it is bigger.")
 	fs.DurationVar(&opt.evictionHeadroom, "eviction-headroom", kubernetes.DefaultEvictionOverhead, "Additional time to wait after a pod's termination grace period for it to have been deleted.")

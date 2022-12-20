@@ -43,16 +43,16 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 	ctx, cancel := context.WithCancel(info.Context)
 	// run an endless loop until there are no drain candidates left
 	wait.UntilWithContext(ctx, func(ctx context.Context) {
-		candidates, err := runner.getDrainCandidates(ctx, info.Key)
+		candidates, groupHasAtLeastOneNode, err := runner.getDrainCandidates(ctx, info.Key)
 		// in case of an error we'll just try it again
 		if err != nil {
 			runner.logger.Error(err, "cannot get drain candidates for group", "group_key", info.Key)
 			return
 		}
 		// TODO add metric to track amount of candidates
-		if len(candidates) == 0 {
+		if !groupHasAtLeastOneNode {
 			// If there are no candidates left, we'll stop the loop
-			runner.logger.Info("no candidates in group left, stopping.", "group_key", info.Key)
+			runner.logger.Info("no node in group left, stopping.", "group_key", info.Key)
 			cancel()
 			return
 		}
@@ -147,10 +147,10 @@ func (runner *drainRunner) removeFailedCandidate(ctx context.Context, candidate 
 	return err
 }
 
-func (runner *drainRunner) getDrainCandidates(ctx context.Context, key groups.GroupKey) ([]*corev1.Node, error) {
+func (runner *drainRunner) getDrainCandidates(ctx context.Context, key groups.GroupKey) ([]*corev1.Node, bool, error) {
 	nodes, err := index.GetFromIndex[corev1.Node](ctx, runner.sharedIndexInformer, groups.SchedulingGroupIdx, string(key))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	candidates := make([]*corev1.Node, 0)
@@ -167,5 +167,5 @@ func (runner *drainRunner) getDrainCandidates(ctx context.Context, key groups.Gr
 		candidates = append(candidates, node.DeepCopy())
 	}
 
-	return candidates, nil
+	return candidates, len(nodes) > 0, nil
 }

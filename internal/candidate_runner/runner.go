@@ -263,7 +263,7 @@ func (runner *candidateRunner) CheckCordonFiltersForNode(n *corev1.Node) CordonF
 
 	pods, err := runner.objectsStore.Pods().ListPodsForNode(n.Name)
 	if err != nil {
-		runner.logger.Error(err, "node", n.Name)
+		runner.logger.Error(err, "failed to list pods on node", "node", n.Name)
 		return CordonFilterResult{
 			Node:      n,
 			CanCordon: false,

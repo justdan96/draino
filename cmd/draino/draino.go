@@ -30,6 +30,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sort"
 	"strings"
 	"time"
@@ -56,7 +57,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
-	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	drainoklog "github.com/planetlabs/draino/internal/kubernetes/klog"
@@ -298,7 +298,13 @@ func main() {
 			log.Sugar().Fatalf("Failed to parse node label expression: %v", err)
 		}
 
-		nodeLabelFilter = cache.FilteringResourceEventHandler{FilterFunc: nodeLabelFilterFunc, Handler: h}
+		if options.noLegacyNodeHandler {
+			nodeLabelFilter = cache.FilteringResourceEventHandler{FilterFunc: func(obj interface{}) bool {
+				return false
+			}, Handler: nil}
+		} else {
+			nodeLabelFilter = cache.FilteringResourceEventHandler{FilterFunc: nodeLabelFilterFunc, Handler: h}
+		}
 		nodes := kubernetes.NewNodeWatch(ctx, cs, nodeLabelFilter)
 		runtimeObjectStoreImpl.NodesStore = nodes
 		// storeCloserFunc := runtimeObjectStoreImpl.Run(log)
@@ -452,15 +458,6 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		return fmt.Errorf("error while initializing informer: %v\n", err)
 	}
 
-	// just to consume analyzer
-	_ = analyser.NewPDBAnalyser(indexer)
-	_ = drain.NewDrainSimulator(
-		context.Background(),
-		mgr.GetClient(),
-		indexer,
-		func(p core.Pod) (pass bool, reason string, err error) { return true, "", nil },
-	)
-
 	staticRetryStrategy := &drain.StaticRetryStrategy{
 		AlertThreashold: 7,
 		Delay:           options.schedulingRetryBackoffDelay,
@@ -519,6 +516,17 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		return err
 	}
 
-	logger.Info("ControllerRuntime bootstrap")
+	logger.Info("ControllerRuntime bootstrap done, running the manager")
+	// Starting Manager
+	go func() {
+		logger.Info("Starting manager")
+		if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+			logger.Error(err, "Controller Manager did exit with error")
+			panic("Manager finished with error: " + err.Error()) // TODO remove this that is purely for testing and identifying an early exit of the code
+		}
+		logger.Info("Manager finished without error")
+		panic("Manager finished normally") // TODO remove this that is purely for testing and identifying an early exit of the code
+	}()
+
 	return nil
 }
