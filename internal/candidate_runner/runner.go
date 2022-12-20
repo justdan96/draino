@@ -140,7 +140,7 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 					logForNode.Error(err, "Failed to run PV protection")
 					continue
 				} else if len(blockingPods) > 0 {
-					logForNode.Info("PVProtection triggered. Skipping that node.")
+					kubernetes.LogrForVerboseNode(runner.logger, node, "Node can't become drain candidate: Pod"+blockingPods[0].Name+" needs to be scheduled on node due to PV binding")
 					continue
 				}
 

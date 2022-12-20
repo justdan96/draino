@@ -25,6 +25,7 @@ type Config struct {
 	drainer             kubernetes.Drainer
 	sharedIndexInformer index.GetSharedIndexInformer
 	pvProtector         protector.PVProtector
+	eventRecorder       kubernetes.EventRecorder
 
 	// With defaults
 	clock         clock.Clock
@@ -60,6 +61,9 @@ func (conf *Config) Validate() error {
 	}
 	if conf.pvProtector == nil {
 		return errors.New("pv protector should be set")
+	}
+	if conf.eventRecorder == nil {
+		return errors.New("event recorder should be set")
 	}
 
 	return nil
@@ -116,5 +120,11 @@ func WithSharedIndexInformer(inf index.GetSharedIndexInformer) WithOption {
 func WithPVProtector(protector protector.PVProtector) WithOption {
 	return func(conf *Config) {
 		conf.pvProtector = protector
+	}
+}
+
+func WithEventRecorder(er kubernetes.EventRecorder) WithOption {
+	return func(conf *Config) {
+		conf.eventRecorder = er
 	}
 }

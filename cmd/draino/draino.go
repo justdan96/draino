@@ -502,6 +502,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		drain_runner.WithLogger(mgr.GetLogger()),
 		drain_runner.WithSharedIndexInformer(indexer),
 		drain_runner.WithPVProtector(pvProtector),
+		drain_runner.WithEventRecorder(eventRecorder),
 	)
 	if err != nil {
 		return err
@@ -524,6 +525,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		candidate_runner.WithDrainSimulator(drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, filters.drainPodFilter)),
 		candidate_runner.WithNodeSorters(candidate_runner.NodeSorters{}),
 		candidate_runner.WithPVProtector(pvProtector),
+		candidate_runner.WithDryRun(options.dryRun),
 	)
 	if err != nil {
 		return err

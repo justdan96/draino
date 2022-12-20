@@ -2,6 +2,7 @@ package drain_runner
 
 import (
 	"context"
+	"k8s.io/kubernetes/pkg/apis/core"
 	"strings"
 	"time"
 
@@ -35,8 +36,8 @@ type drainRunner struct {
 	sharedIndexInformer index.GetSharedIndexInformer
 	runEvery            time.Duration
 	pvProtector         protector.PVProtector
-
-	preprocessors []DrainPreProzessor
+	eventRecorder       kubernetes.EventRecorder
+	preprocessors       []DrainPreProzessor
 }
 
 func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
@@ -67,14 +68,15 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 }
 
 func (runner *drainRunner) handleCandidate(ctx context.Context, candidate *corev1.Node) error {
-	pods, err := runner.pvProtector.GetUnscheduledPodsBoundToNodeByPV(candidate)
+	podsAssociatedWithPV, err := runner.pvProtector.GetUnscheduledPodsBoundToNodeByPV(candidate)
 	if err != nil {
 		return err
 	}
 
 	// TODO add metric to track how often this happens
-	if len(pods) > 0 {
-		runner.logger.Info("Removing candidate status, because node is hosting PV for pods", "node_name", candidate.Name, "pods", strings.Join(utils.GetPodNames(pods), "; "))
+	if len(podsAssociatedWithPV) > 0 {
+		runner.logger.Info("Removing candidate status, because node is hosting PV for pods", "node", candidate.Name, "pods", strings.Join(utils.GetPodNames(podsAssociatedWithPV), "; "))
+		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonPendingPodWithLocalPV, "Pod(s) "+strings.Join(utils.GetPodNames(podsAssociatedWithPV), ", ")+" associated with local PV on that node")
 		_, err := k8sclient.RemoveNLATaint(ctx, runner.client, candidate)
 		return err
 	}
@@ -85,16 +87,18 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, candidate *corev
 		return nil
 	}
 
-	runner.logger.Info("all preprocessors of candidate are done; will start draining", "node_name", candidate.Name)
+	runner.logger.Info("start draining", "node_name", candidate.Name)
 
 	// Draining a node is a blocking operation. This makes sure that one drain does not affect the other by taking PDB budget.
 	// TODO add metric to show how many drains are successful / failed
+	runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeNormal, kubernetes.EventReasonDrainStarting, "Draining node")
 	err = runner.drainCandidate(ctx, candidate)
 	if err != nil {
 		runner.logger.Error(err, "failed to drain node", "node_name", candidate.Name)
+		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Drain failed: %v", err)
 		return runner.removeFailedCandidate(ctx, candidate, err.Error())
 	}
-
+	runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeNormal, kubernetes.EventReasonDrainSucceeded, "Drained node")
 	runner.logger.Info("successfully drained node", "node_name", candidate.Name)
 
 	return nil
@@ -142,7 +146,8 @@ func (runner *drainRunner) removeFailedCandidate(ctx context.Context, candidate 
 	if err != nil {
 		return err
 	}
-
+	rw := runner.retryWall.GetRetryWallTimestamp(candidate)
+	runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Drain failed: next attempt after %v", rw)
 	_, err = k8sclient.RemoveNLATaint(ctx, runner.client, candidate)
 	return err
 }
