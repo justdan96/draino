@@ -26,6 +26,8 @@ import (
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	"github.com/spf13/cobra"
+	policyv1 "k8s.io/api/policy/v1"
+	policyv1beta1 "k8s.io/api/policy/v1beta1"
 	"k8s.io/utils/clock"
 	"net/http"
 	_ "net/http/pprof"
@@ -448,6 +450,14 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		return fmt.Errorf("error while adding v1 scheme: %v\n", err)
 	}
 
+	if err := policyv1beta1.AddToScheme(cfg.ManagerOptions.Scheme); err != nil {
+		return fmt.Errorf("error while adding policyv1 scheme: %v\n", err)
+	}
+
+	if err := policyv1.AddToScheme(cfg.ManagerOptions.Scheme); err != nil {
+		return fmt.Errorf("error while adding policyv1 scheme: %v\n", err)
+	}
+
 	mgr, logger, _, err := controllerruntime.NewManager(cfg)
 	if err != nil {
 		return fmt.Errorf("error while creating manager: %v\n", err)
@@ -504,7 +514,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		candidate_runner.WithNodeLabelsFilterFunction(filters.nodeLabelFilter),
 		candidate_runner.WithGlobalConfig(globalConfig),
 		candidate_runner.WithMaxSimultaneousCandidates(1), // TODO should we move that to something that can be customized per user
-		candidate_runner.WithDrainSimulator(drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, filters.drainPodFilter)),
+		candidate_runner.WithDrainSimulator(drain.NewDrainSimulator(context.Background(), cs, indexer, filters.drainPodFilter)),
 		candidate_runner.WithNodeSorters(candidate_runner.NodeSorters{}),
 	)
 

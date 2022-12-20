@@ -3,6 +3,9 @@ package drain
 import (
 	"context"
 	"fmt"
+	policyv1 "k8s.io/api/policy/v1"
+	policyv1beta1 "k8s.io/api/policy/v1beta1"
+	kubernetes2 "k8s.io/client-go/kubernetes"
 	"time"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
@@ -10,9 +13,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -32,7 +33,7 @@ type DrainSimulator interface {
 type drainSimulatorImpl struct {
 	pdbIndexer index.PDBIndexer
 	podIndexer index.PodIndexer
-	client     client.Client
+	client     kubernetes2.Interface
 	// skipPodFilter will be used to evaluate if pods running on a node should go through the eviction simulation
 	skipPodFilter  kubernetes.PodFilterFunc
 	podResultCache utils.TTLCache[simulationResult]
@@ -47,7 +48,7 @@ var _ DrainSimulator = &drainSimulatorImpl{}
 
 func NewDrainSimulator(
 	ctx context.Context,
-	client client.Client,
+	client kubernetes2.Interface,
 	indexer *index.Indexer,
 	skipPodFilter kubernetes.PodFilterFunc,
 ) DrainSimulator {
@@ -165,7 +166,25 @@ func (sim *drainSimulatorImpl) simulateAPIEviction(ctx context.Context, pod *cor
 			DryRun:             []string{"All"},
 		},
 	})
-	return err == nil, err
+	if err1 == nil {
+		//fmt.Println("eviction simulation succeeded for v1")
+		return true, nil
+	}
+	err2 := sim.client.PolicyV1beta1().Evictions(pod.Namespace).Evict(ctx, &policyv1beta1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pod.GetName(),
+			Namespace: pod.GetNamespace(),
+		},
+		DeleteOptions: &metav1.DeleteOptions{
+			GracePeriodSeconds: &gracePeriod,
+			DryRun:             []string{"All"},
+		},
+	})
+	if err2 == nil {
+		//fmt.Println("eviction simulation succeeded for v1beta")
+		return true, nil
+	}
+	return false, err2
 }
 
 func (sim *drainSimulatorImpl) writePodCache(pod *corev1.Pod, result bool, reason string) {

@@ -121,13 +121,13 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		for node, ok := nodeProvider.Next(); ok && remainCandidateSlot > 0; node, ok = nodeProvider.Next() {
 			logForNode := runner.logger.WithValues("node", node.Name)
 			// check that the node can be drained
-			canDrain, errDrainSimulation := runner.drainSimulator.SimulateDrain(ctx, node)
+			canDrain, reasons, errDrainSimulation := runner.drainSimulator.SimulateDrain(ctx, node)
 			if errDrainSimulation != nil {
 				logForNode.Error(errDrainSimulation, "Failed to simulate drain")
 				continue
 			}
 			if !canDrain {
-				logForNode.Error(errDrainSimulation, "Rejected by drain simulation")
+				logForNode.Info("Rejected by drain simulation", "reason", strings.Join(reasons, ";"))
 				continue
 			}
 
