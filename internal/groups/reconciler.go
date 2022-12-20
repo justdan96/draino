@@ -35,6 +35,8 @@ type GroupRegistry struct {
 	groupDrainRunner          *GroupsRunner
 	groupDrainCandidateRunner *GroupsRunner
 	nodeFilteringFunc         kubernetes.NodeLabelFilterFunc
+
+	hasSyncedFunc func() bool
 }
 
 func NewGroupRegistry(
@@ -45,6 +47,7 @@ func NewGroupRegistry(
 	keyGetter GroupKeyGetter,
 	drainFactory, drainCandidateFactory RunnerFactory,
 	nodeFilteringFunc kubernetes.NodeLabelFilterFunc,
+	hasSyncedFunc func() bool,
 ) *GroupRegistry {
 	return &GroupRegistry{
 		kclient:                   kclient,
@@ -55,11 +58,18 @@ func NewGroupRegistry(
 		groupDrainCandidateRunner: NewGroupsRunner(ctx, drainCandidateFactory, logger, "drain_candidate"),
 		eventRecorder:             eventRecorder,
 		nodeFilteringFunc:         nodeFilteringFunc,
+		hasSyncedFunc:             hasSyncedFunc,
 	}
 }
 
 // Reconcile register the node in the reverse index per ProviderIP
 func (r *GroupRegistry) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if !r.hasSyncedFunc() {
+		return ctrl.Result{
+			Requeue:      true,
+			RequeueAfter: 5 * time.Second,
+		}, nil
+	}
 	node := &v1.Node{}
 	if err := r.kclient.Get(ctx, req.NamespacedName, node); err != nil {
 		if errors.IsNotFound(err) {
@@ -98,7 +108,7 @@ func (r *GroupRegistry) SetupWithManager(mgr ctrl.Manager) error {
 						return false // to early in the process the node might not be complete
 					}
 					return true
-				}, // we need to have create for the initial syn of the controller
+				},                                                          // we need to have create for the initial syn of the controller
 				DeleteFunc:  func(event.DeleteEvent) bool { return false }, // we don't care about delete, the runner will stop if the groups is empty
 				GenericFunc: func(event.GenericEvent) bool { return false },
 				UpdateFunc: func(evt event.UpdateEvent) bool {

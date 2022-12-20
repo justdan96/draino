@@ -2,6 +2,7 @@ package candidate_runner
 
 import (
 	"errors"
+	"github.com/planetlabs/draino/internal/protector"
 	"github.com/planetlabs/draino/internal/scheduler"
 	corev1 "k8s.io/api/core/v1"
 	"time"
@@ -31,6 +32,7 @@ type Config struct {
 	cordonFilter        kubernetes.PodFilterFunc
 	nodeLabelFilterFunc kubernetes.NodeLabelFilterFunc
 	globalConfig        kubernetes.GlobalConfig
+	pvProtector         protector.PVProtector
 
 	// With defaults
 	clock                     clock.Clock
@@ -91,6 +93,10 @@ func (conf *Config) Validate() error {
 	if conf.nodeSorters == nil {
 		return errors.New("node sorters are note defined")
 	}
+	if conf.pvProtector == nil {
+		return errors.New("pv protector should be set")
+	}
+
 	return nil
 }
 
@@ -189,5 +195,11 @@ func WithNodeSorters(sorters NodeSorters) WithOption {
 func WithNodeIteratorFactory(nodeIteratorFactory NodeIteratorFactory) WithOption {
 	return func(conf *Config) {
 		conf.nodeIteratorFactory = nodeIteratorFactory
+	}
+}
+
+func WithPVProtector(protector protector.PVProtector) WithOption {
+	return func(conf *Config) {
+		conf.pvProtector = protector
 	}
 }

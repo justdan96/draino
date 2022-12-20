@@ -42,5 +42,6 @@ func (factory *CandidateRunnerFactory) BuildRunner() groups.Runner {
 		dryRun:                    factory.conf.dryRun,
 		nodeSorters:               factory.conf.nodeSorters,
 		nodeIteratorFactory:       factory.conf.nodeIteratorFactory,
+		pvProtector:               factory.conf.pvProtector,
 	}
 }

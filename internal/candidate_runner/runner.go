@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
+	"github.com/planetlabs/draino/internal/protector"
 	"github.com/planetlabs/draino/internal/scheduler"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ type candidateRunner struct {
 	objectsStore         kubernetes.RuntimeObjectStore
 	nodeLabelsFilterFunc kubernetes.NodeLabelFilterFunc
 	globalConfig         kubernetes.GlobalConfig
+	pvProtector          protector.PVProtector
 
 	maxSimultaneousCandidates int
 	dryRun                    bool
@@ -133,6 +135,15 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 
 			logForNode.Info("Adding drain candidate taint")
 			if !runner.dryRun {
+
+				if blockingPods, errPvProtection := runner.pvProtector.GetUnscheduledPodsBoundToNodeByPV(node); errPvProtection != nil {
+					logForNode.Error(err, "Failed to run PV protection")
+					continue
+				} else if len(blockingPods) > 0 {
+					logForNode.Info("PVProtection triggered. Skipping that node.")
+					continue
+				}
+
 				if _, errTaint := k8sclient.AddNLATaint(ctx, runner.client, node, runner.clock.Now(), k8sclient.TaintDrainCandidate); errTaint != nil {
 					logForNode.Error(errTaint, "Failed to taint node")
 					continue // let's try next node, maybe this one has a problem
