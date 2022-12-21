@@ -60,14 +60,14 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		nodes, err := index.GetFromIndex[corev1.Node](ctx, runner.sharedIndexInformer, groups.SchedulingGroupIdx, string(info.Key))
 		// in case of an error we'll just try it again
 		if err != nil {
-			runner.logger.Error(err, "cannot get nodes for group", "group_key", info.Key)
+			runner.logger.Error(err, "cannot get nodes for group")
 			return
 		}
 
 		// TODO add metric to track amount of nodes in the group
 		if len(nodes) == 0 {
 			// If there are no candidates left, we'll stop the loop
-			runner.logger.Info("no nodes in group left, stopping.", "group_key", info.Key)
+			runner.logger.Info("no nodes in group left, stopping.")
 			cancel()
 			return
 		}
@@ -75,6 +75,7 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		// TODO add metrics after each filter ?
 		// TODO is there a better order for filter that would use less time/resources ?
 
+		// TODO formalize an interface for filters and register filters into the runner
 		// filter nodes that are already candidate
 		nodes, alreadyCandidateNodes, maxReached := runner.checkAlreadyCandidates(nodes)
 		if maxReached {
@@ -114,11 +115,10 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		// filter nodes that are terminating
 		nodes, _ = runner.checkNodesTerminating(nodes)
 		if len(nodes) == 0 {
-			runner.logger.Info("No node after retryWall check")
+			runner.logger.Info("No node after Terminating node check")
 			return
 		}
 
-		//nodeProvider := scheduler.NewSortingTreeWithInitialization[*corev1.Node](nodes, runner.nodeSorters)
 		nodeProvider := runner.nodeIteratorFactory(nodes, runner.nodeSorters)
 		for node, ok := nodeProvider.Next(); ok && remainCandidateSlot > 0; node, ok = nodeProvider.Next() {
 			logForNode := runner.logger.WithValues("node", node.Name)
@@ -140,7 +140,7 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 					logForNode.Error(err, "Failed to run PV protection")
 					continue
 				} else if len(blockingPods) > 0 {
-					kubernetes.LogrForVerboseNode(runner.logger, node, "Node can't become drain candidate: Pod"+blockingPods[0].Name+" needs to be scheduled on node due to PV binding")
+					kubernetes.LogrForVerboseNode(runner.logger, node, "Node can't become drain candidate: Pod needs to be scheduled on node due to PV binding", "pod", blockingPods[0].Namespace+"/"+blockingPods[0].Name)
 					continue
 				}
 
@@ -186,9 +186,6 @@ func (runner *candidateRunner) checkNodesTerminating(nodes []*corev1.Node) (keep
 
 func (runner *candidateRunner) checkNodesLabels(nodes []*corev1.Node) []*corev1.Node {
 	// TODO add tracing to see how much expensive this is. There is an expression evaluation at each call.
-	if runner.nodeLabelsFilterFunc == nil {
-		return nil
-	}
 	var remainingNodes []*corev1.Node
 	for _, n := range nodes {
 		if runner.CheckNodeLabels(n).InScope {
@@ -240,10 +237,6 @@ func (runner *candidateRunner) checkAlreadyCandidates(nodes []*corev1.Node) (rem
 // checkCordonFilters return true if the filtering is ok to proceed
 // if the node is labeled with `node-lifecycle.datadoghq.com/enabled` we do not check the pod and use the value set on the node
 func (runner *candidateRunner) checkCordonFilters(nodes []*corev1.Node) []*corev1.Node {
-	if runner.cordonFilter == nil || runner.objectsStore == nil || runner.objectsStore.Pods() == nil {
-		return nil
-	}
-
 	remainingNodes := make([]*corev1.Node, 0, len(nodes)) // high probability that all nodes are to be kept
 	for _, n := range nodes {
 		if runner.CheckCordonFiltersForNode(n).CanCordon {
@@ -285,7 +278,7 @@ func (runner *candidateRunner) CheckCordonFiltersForNode(n *corev1.Node) CordonF
 		ok, reason, err := runner.cordonFilter(*pod)
 		kubernetes.LogrForVerboseNode(runner.logger, n, "Cordon Filter", "pod", pod.Name, "reason", reason, "ok", ok)
 		if err != nil {
-			runner.logger.Error(err, "node", n.Name, "pod", pod.Name, "namespace", n.Name)
+			runner.logger.Error(err, "failed run cordon filter on pod", "node", n.Name, "pod", pod.Name, "namespace", n.Name)
 			return CordonFilterResult{
 				Node:      n,
 				CanCordon: false,

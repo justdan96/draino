@@ -1,6 +1,9 @@
 package drain
 
 import (
+	"context"
+	"github.com/stretchr/testify/assert"
+	"sort"
 	"testing"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
@@ -128,22 +131,21 @@ func TestSimulator_SimulateDrain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			// TODO commenting test while we fix the problem with policyv1/v1beta1 client
-			//ch := make(chan struct{})
-			//defer close(ch)
-			//simulator, err := NewFakeDrainSimulator(
-			//	&FakeSimulatorOptions{
-			//		Chan:      ch,
-			//		Objects:   append(tt.Objects, &tt.Node),
-			//		PodFilter: tt.PodFilter,
-			//	},
-			//)
-			//assert.NoError(t, err)
-			//
-			//drainable, reason, err := simulator.SimulateDrain(context.Background(), &tt.Node)
-			//sort.Strings(tt.Reason)
-			//assert.Equal(t, tt.IsDrainable, drainable, "Node drainability is not as expected")
-			//assert.Equal(t, tt.Reason, reason, "Reason is not as expected")
+			ch := make(chan struct{})
+			defer close(ch)
+			simulator, err := NewFakeDrainSimulator(
+				&FakeSimulatorOptions{
+					Chan:      ch,
+					Objects:   append(tt.Objects, &tt.Node),
+					PodFilter: tt.PodFilter,
+				},
+			)
+			assert.NoError(t, err)
+
+			drainable, reason, err := simulator.SimulateDrain(context.Background(), &tt.Node)
+			sort.Strings(tt.Reason)
+			assert.Equal(t, tt.IsDrainable, drainable, "Node drainability is not as expected")
+			assert.Equal(t, tt.Reason, reason, "Reason is not as expected")
 		})
 	}
 }

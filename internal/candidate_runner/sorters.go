@@ -3,7 +3,6 @@ package candidate_runner
 import v1 "k8s.io/api/core/v1"
 
 // This file contains the NodeSorters
-// type NodeSorters []scheduler.LessFunc[*corev1.Node]
 
 const (
 	NodeAnnotationDrainASAPKey = "node-lifecycle.datadoghq.com/drain-asap"

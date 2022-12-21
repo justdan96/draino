@@ -2,6 +2,7 @@ package drain_runner
 
 import (
 	"context"
+	"fmt"
 	"k8s.io/kubernetes/pkg/apis/core"
 	"strings"
 	"time"
@@ -44,27 +45,35 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 	ctx, cancel := context.WithCancel(info.Context)
 	// run an endless loop until there are no drain candidates left
 	wait.UntilWithContext(ctx, func(ctx context.Context) {
-		candidates, groupHasAtLeastOneNode, err := runner.getDrainCandidates(ctx, info.Key)
-		// in case of an error we'll just try it again
-		if err != nil {
-			runner.logger.Error(err, "cannot get drain candidates for group", "group_key", info.Key)
-			return
-		}
-		// TODO add metric to track amount of candidates
-		if !groupHasAtLeastOneNode {
-			// If there are no candidates left, we'll stop the loop
-			runner.logger.Info("no node in group left, stopping.", "group_key", info.Key)
+		if emptyGroup := runner.handleGroup(ctx, info); emptyGroup {
 			cancel()
 			return
 		}
-
-		for _, candidate := range candidates {
-			if err := runner.handleCandidate(info.Context, candidate); err != nil {
-				runner.logger.Error(err, "error during candidate evaluation", "node_name", candidate.Name)
-			}
-		}
 	}, runner.runEvery)
 	return nil
+}
+
+func (runner *drainRunner) handleGroup(ctx context.Context, info *groups.RunnerInfo) (emptyGroup bool) {
+	candidates, groupHasAtLeastOneNode, err := runner.getDrainCandidates(ctx, info.Key)
+	// in case of an error we'll just try it again
+	if err != nil {
+		runner.logger.Error(err, "cannot get drain candidates for group", "group_key", info.Key)
+		return
+	}
+	// TODO add metric to track amount of candidates
+	if !groupHasAtLeastOneNode {
+		// If there are no candidates left, we'll stop the loop
+		runner.logger.Info("no node in group left, stopping.", "group_key", info.Key)
+		emptyGroup = true
+		return
+	}
+	fmt.Printf("Running with %d candiadte\n", len(candidates))
+	for _, candidate := range candidates {
+		if err := runner.handleCandidate(info.Context, candidate); err != nil {
+			runner.logger.Error(err, "error during candidate evaluation", "node_name", candidate.Name)
+		}
+	}
+	return
 }
 
 func (runner *drainRunner) handleCandidate(ctx context.Context, candidate *corev1.Node) error {

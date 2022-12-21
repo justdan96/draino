@@ -78,6 +78,14 @@ func (r *GroupRegistry) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, fmt.Errorf("get Node Fails: %v", err)
 	}
 
+	// We have to be sure that the node has a complete dataset before attempting any group creation
+	if time.Now().Sub(node.GetCreationTimestamp().Time) < r.nodeWarmUpDelay {
+		return ctrl.Result{
+			Requeue:      true,
+			RequeueAfter: r.nodeWarmUpDelay,
+		}, nil
+	}
+
 	// discard all node that do not match the node filtering function
 	if r.nodeFilteringFunc != nil && !r.nodeFilteringFunc(node) {
 		return ctrl.Result{}, nil
@@ -104,17 +112,11 @@ func (r *GroupRegistry) SetupWithManager(mgr ctrl.Manager) error {
 		WithEventFilter(
 			predicate.Funcs{
 				CreateFunc: func(evt event.CreateEvent) bool {
-					if time.Now().Sub(evt.Object.GetCreationTimestamp().Time) < r.nodeWarmUpDelay {
-						return false // to early in the process the node might not be complete
-					}
 					return true
-				},                                                          // we need to have create for the initial syn of the controller
-				DeleteFunc:  func(event.DeleteEvent) bool { return false }, // we don't care about delete, the runner will stop if the groups is empty
+				},
+				DeleteFunc:  func(event.DeleteEvent) bool { return false },
 				GenericFunc: func(event.GenericEvent) bool { return false },
 				UpdateFunc: func(evt event.UpdateEvent) bool {
-					if time.Now().Sub(evt.ObjectNew.GetCreationTimestamp().Time) < r.nodeWarmUpDelay {
-						return false // to early in the process the node might not be complete
-					}
 					return true
 				},
 			},
