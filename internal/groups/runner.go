@@ -8,6 +8,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+const CTXGroupKey = "group_key"
+
 type RunnerInfo struct {
 	Context context.Context
 	Key     GroupKey
@@ -59,6 +61,8 @@ func (g *GroupsRunner) RunForGroup(key GroupKey) {
 
 func (g *GroupsRunner) runForGroup(key GroupKey) *RunnerInfo {
 	ctx, cancel := context.WithCancel(g.parentContext)
+	ctx = context.WithValue(ctx, CTXGroupKey, key)
+
 	r := &RunnerInfo{
 		Key:     key,
 		Context: ctx,

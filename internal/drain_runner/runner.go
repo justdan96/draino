@@ -2,11 +2,13 @@ package drain_runner
 
 import (
 	"context"
-	"k8s.io/kubernetes/pkg/apis/core"
 	"strings"
 	"time"
 
+	"k8s.io/kubernetes/pkg/apis/core"
+
 	"github.com/go-logr/logr"
+	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
@@ -38,7 +40,9 @@ type drainRunner struct {
 	runEvery            time.Duration
 	pvProtector         protector.PVProtector
 	eventRecorder       kubernetes.EventRecorder
-	preprocessors       []DrainPreProzessor
+	drainBuffer         drainbuffer.DrainBuffer
+
+	preprocessors []DrainPreProzessor
 }
 
 func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
@@ -177,6 +181,14 @@ func (runner *drainRunner) drainCandidate(ctx context.Context, candidate *corev1
 	err = runner.drainer.Drain(drainContext, candidate)
 	if err != nil {
 		return err
+	}
+
+	entry := ctx.Value(groups.CTXGroupKey)
+	groupKey, ok := entry.(groups.GroupKey)
+	if ok {
+		runner.drainBuffer.Register(groupKey, 0)
+	} else {
+		runner.logger.Info("cannot parse into group key", "entry", entry, "node_name", candidate.Name)
 	}
 
 	_, err = k8sclient.AddNLATaint(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDrained)
