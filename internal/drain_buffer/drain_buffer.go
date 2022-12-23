@@ -17,11 +17,12 @@ type DrainBuffer interface {
 	// NoteSuccessfulDrain is adding the given group to the internal store
 	NoteSuccessfulDrain(groups.GroupKey, time.Duration)
 	// NextDrain returns the next possible drain time for the given group
+	// It will return a zero time if the next drain can be done immediately
 	NextDrain(groups.GroupKey, time.Duration) time.Time
 }
 
 // drainCache is cache used internally by the drain buffer
-type drainCache map[string]drainCacheEntry
+type drainCache map[groups.GroupKey]drainCacheEntry
 
 // drainCacheEntry stores information about specific cache entries
 type drainCacheEntry struct {
@@ -65,7 +66,7 @@ func (buffer *drainBufferImpl) NoteSuccessfulDrain(key groups.GroupKey, drainBuf
 	buffer.Lock()
 	defer buffer.Unlock()
 
-	buffer.cache[string(key)] = drainCacheEntry{
+	buffer.cache[key] = drainCacheEntry{
 		LastDrain:   buffer.clock.Now(),
 		DrainBuffer: drainBuffer,
 	}
@@ -75,7 +76,7 @@ func (buffer *drainBufferImpl) NextDrain(key groups.GroupKey, drainBuffer time.D
 	buffer.RLock()
 	defer buffer.RUnlock()
 
-	entry, ok := buffer.cache[string(key)]
+	entry, ok := buffer.cache[key]
 	if !ok {
 		return time.Time{}
 	}
@@ -97,13 +98,13 @@ func (buffer *drainBufferImpl) cleanupCache() {
 
 func (buffer *drainBufferImpl) persistenceLoop(ctx context.Context) {
 	wait.UntilWithContext(ctx, func(ctx context.Context) {
-		if err := buffer.persist(); err != nil {
+		if err := buffer.cleanupAndPersist(); err != nil {
 			buffer.logger.Error(err, "failed to persist drain buffer cache")
 		}
 	}, time.Second*20)
 }
 
-func (buffer *drainBufferImpl) persist() error {
+func (buffer *drainBufferImpl) cleanupAndPersist() error {
 	buffer.cleanupCache()
 	return buffer.persistor.Persist(&buffer.cache)
 }

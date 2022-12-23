@@ -3,6 +3,7 @@ package drainbuffer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,6 +39,10 @@ func NewConfigMapPersistor[T any](client client.Client, name, namespace string) 
 }
 
 func (p *ConfigMapPersistor[T]) Persist(data *T) error {
+	if data == nil {
+		return errors.New("data is empty")
+	}
+
 	cm, exist, err := p.getConfigMap()
 	if err != nil {
 		return err

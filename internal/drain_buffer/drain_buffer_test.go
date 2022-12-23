@@ -60,7 +60,7 @@ func TestDrainBuffer(t *testing.T) {
 
 			// create new entry
 			drainBuffer.NoteSuccessfulDrain("foobar", tt.DrainBuffer)
-			err = drainBuffer.persist()
+			err = drainBuffer.cleanupAndPersist()
 			assert.NoError(t, err, "cannot persist drain buffer")
 			// Close old buffer cleanup
 			cancel()
