@@ -103,14 +103,14 @@ func (runner *drainRunner) handleGroup(ctx context.Context, info *groups.RunnerI
 	}
 
 	for _, candidate := range candidates {
-		if err := runner.handleCandidate(info.Context, candidate); err != nil {
+		if err := runner.handleCandidate(ctx, info, candidate); err != nil {
 			runner.logger.Error(err, "error during candidate evaluation", "node_name", candidate.Name)
 		}
 	}
 	return
 }
 
-func (runner *drainRunner) handleCandidate(ctx context.Context, candidate *corev1.Node) error {
+func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.RunnerInfo, candidate *corev1.Node) error {
 	podsAssociatedWithPV, err := runner.pvProtector.GetUnscheduledPodsBoundToNodeByPV(candidate)
 	if err != nil {
 		return err
@@ -136,7 +136,7 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, candidate *corev
 	// Draining a node is a blocking operation. This makes sure that one drain does not affect the other by taking PDB budget.
 	// TODO add metric to show how many drains are successful / failed
 	runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeNormal, kubernetes.EventReasonDrainStarting, "Draining node")
-	err = runner.drainCandidate(ctx, candidate)
+	err = runner.drainCandidate(ctx, info, candidate)
 	if err != nil {
 		runner.logger.Error(err, "failed to drain node", "node_name", candidate.Name)
 		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Drain failed: %v", err)
@@ -165,7 +165,7 @@ func (runner *drainRunner) checkPreprocessors(candidate *corev1.Node) bool {
 	return allPreprocessorsDone
 }
 
-func (runner *drainRunner) drainCandidate(ctx context.Context, candidate *corev1.Node) error {
+func (runner *drainRunner) drainCandidate(ctx context.Context, info *groups.RunnerInfo, candidate *corev1.Node) error {
 	// TODO add metric about to track the runtime of this method
 	candidate, err := k8sclient.AddNLATaint(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDraining)
 	if err != nil {
@@ -183,14 +183,7 @@ func (runner *drainRunner) drainCandidate(ctx context.Context, candidate *corev1
 		return err
 	}
 
-	entry := ctx.Value(groups.CTXGroupKey)
-	groupKey, ok := entry.(groups.GroupKey)
-	if ok {
-		runner.drainBuffer.NoteSuccessfulDrain(groupKey, 0)
-	} else {
-		runner.logger.Info("cannot parse into group key", "entry", entry, "node_name", candidate.Name)
-	}
-
+	runner.drainBuffer.NoteSuccessfulDrain(info.Key, 0)
 	_, err = k8sclient.AddNLATaint(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDrained)
 	return err
 }
