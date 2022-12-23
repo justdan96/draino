@@ -186,7 +186,7 @@ func (runner *drainRunner) drainCandidate(ctx context.Context, candidate *corev1
 	entry := ctx.Value(groups.CTXGroupKey)
 	groupKey, ok := entry.(groups.GroupKey)
 	if ok {
-		runner.drainBuffer.Register(groupKey, 0)
+		runner.drainBuffer.NoteSuccessfulDrain(groupKey, 0)
 	} else {
 		runner.logger.Info("cannot parse into group key", "entry", entry, "node_name", candidate.Name)
 	}

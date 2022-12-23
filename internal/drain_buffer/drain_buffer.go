@@ -14,8 +14,8 @@ import (
 
 // DrainBuffer will store information about the last sucessful drains
 type DrainBuffer interface {
-	// Register is adding the given group to the internal store
-	Register(groups.GroupKey, time.Duration)
+	// NoteSuccessfulDrain is adding the given group to the internal store
+	NoteSuccessfulDrain(groups.GroupKey, time.Duration)
 	// NextDrain returns the next possible drain time for the given group
 	NextDrain(groups.GroupKey, time.Duration) time.Time
 }
@@ -61,7 +61,7 @@ func NewDrainBuffer(ctx context.Context, client client.Client, clock clock.Clock
 	return drainBuffer, nil
 }
 
-func (buffer *drainBufferImpl) Register(key groups.GroupKey, drainBuffer time.Duration) {
+func (buffer *drainBufferImpl) NoteSuccessfulDrain(key groups.GroupKey, drainBuffer time.Duration) {
 	buffer.Lock()
 	defer buffer.Unlock()
 
