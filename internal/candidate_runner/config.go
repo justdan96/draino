@@ -23,16 +23,12 @@ type Config struct {
 	// Have to be set
 	logger              *logr.Logger
 	kubeClient          client.Client
-	retryWall           drain.RetryWall
 	sharedIndexInformer index.GetSharedIndexInformer
 	eventRecorder       kubernetes.EventRecorder
-	objectsStore        kubernetes.RuntimeObjectStore
 	drainSimulator      drain.DrainSimulator
 	nodeSorters         NodeSorters
-	cordonFilter        kubernetes.PodFilterFunc
-	nodeLabelFilterFunc kubernetes.NodeLabelFilterFunc
-	globalConfig        kubernetes.GlobalConfig
 	pvProtector         protector.PVProtector
+	filterFactory       FilterFactory
 
 	// With defaults
 	clock                     clock.Clock
@@ -63,29 +59,11 @@ func (conf *Config) Validate() error {
 	if conf.kubeClient == nil {
 		return errors.New("kube client should be set")
 	}
-	if conf.retryWall == nil {
-		return errors.New("retry wall should be set")
-	}
 	if conf.sharedIndexInformer == nil {
 		return errors.New("get shared index informer should be set")
 	}
 	if conf.eventRecorder == nil {
 		return errors.New("event recorder should be set")
-	}
-	if conf.objectsStore == nil {
-		return errors.New("runtime object store should be set")
-	}
-	if conf.nodeLabelFilterFunc == nil {
-		return errors.New("node labels filtering function is not set")
-	}
-	if conf.cordonFilter == nil {
-		return errors.New("node cordon filtering function is not set")
-	}
-	if conf.globalConfig.ConfigName == "" {
-		return errors.New("globalConfig.ConfigName is not set")
-	}
-	if len(conf.globalConfig.SuppliedConditions) == 0 {
-		return errors.New("globalConfig.SuppliedConditions is empty")
 	}
 	if conf.drainSimulator == nil {
 		return errors.New("drain simulator not defined")
@@ -95,6 +73,9 @@ func (conf *Config) Validate() error {
 	}
 	if conf.pvProtector == nil {
 		return errors.New("pv protector should be set")
+	}
+	if conf.filterFactory == nil {
+		errors.New("filter factory is not set")
 	}
 
 	return nil
@@ -124,12 +105,6 @@ func WithClock(c clock.Clock) WithOption {
 	}
 }
 
-func WithRetryWall(wall drain.RetryWall) WithOption {
-	return func(conf *Config) {
-		conf.retryWall = wall
-	}
-}
-
 func WithSharedIndexInformer(inf index.GetSharedIndexInformer) WithOption {
 	return func(conf *Config) {
 		conf.sharedIndexInformer = inf
@@ -139,32 +114,6 @@ func WithSharedIndexInformer(inf index.GetSharedIndexInformer) WithOption {
 func WithEventRecorder(er kubernetes.EventRecorder) WithOption {
 	return func(conf *Config) {
 		conf.eventRecorder = er
-	}
-}
-
-func WithRuntimeObjectStore(store kubernetes.RuntimeObjectStore) WithOption {
-	return func(conf *Config) {
-		conf.objectsStore = store
-	}
-}
-
-func WithNodeLabelsFilterFunction(filter kubernetes.NodeLabelFilterFunc) WithOption {
-	return func(conf *Config) {
-		conf.nodeLabelFilterFunc = filter
-	}
-}
-
-func WithGlobalConfig(gc kubernetes.GlobalConfig) WithOption {
-	return func(conf *Config) {
-		conf.globalConfig = gc
-	}
-}
-
-// WithCordonPodFilter configures a filter that may prevent to cordon nodes
-// to avoid further impossible eviction when draining.
-func WithCordonPodFilter(f kubernetes.PodFilterFunc) WithOption {
-	return func(conf *Config) {
-		conf.cordonFilter = f
 	}
 }
 
@@ -201,5 +150,11 @@ func WithNodeIteratorFactory(nodeIteratorFactory NodeIteratorFactory) WithOption
 func WithPVProtector(protector protector.PVProtector) WithOption {
 	return func(conf *Config) {
 		conf.pvProtector = protector
+	}
+}
+
+func WithFilterFactory(filterFactory FilterFactory) WithOption {
+	return func(conf *Config) {
+		conf.filterFactory = filterFactory
 	}
 }
