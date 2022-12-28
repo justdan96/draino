@@ -510,7 +510,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		return err
 	}
 
-	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(ctx, logger, mgr.GetClient(), eventRecorder, store, indexer, analyser.StabilityPeriodCheckerConfiguration{})
+	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(ctx, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{})
 	filterFactory, err := filters.NewFactory(
 		filters.WithLogger(mgr.GetLogger()),
 		filters.WithRetryWall(retryWall),

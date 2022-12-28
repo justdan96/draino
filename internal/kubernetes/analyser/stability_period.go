@@ -27,10 +27,10 @@ const (
 	DefaultStabilityPeriodLength      = 3 * time.Minute
 )
 
-// StabilityPeriodChecker, can a node be drain and respect stability period configuration
+// StabilityPeriodChecker checks if a node can be drained and respect stability period configuration
 type StabilityPeriodChecker interface {
 	// StabilityPeriodAcceptsDrain check if the node can be drained, would we respect all the stability periods set on the node or on the pods
-	// the time value passed should represent "Now" on a live system. We are passing it to allow simulation (future) and ease unittesting
+	// the time value passed should represent "Now" on a live system. We are passing it to allow simulation (future) and ease unit-testing
 	StabilityPeriodAcceptsDrain(context.Context, *v1.Node, time.Time) bool
 }
 
@@ -45,7 +45,7 @@ type stabilityPeriodChecker struct {
 	stabilityPeriodConfig StabilityPeriodCheckerConfiguration
 
 	// cacheRecoveryTime for a combination {Node+Pods} this cache store the estimated recoveryTime
-	// Note the if a pod is delete from the node the key can't be used anymore, so that cacheclean will remove this key when the TTL expire
+	// Note the if a pod is deleted from the node the key can't be used anymore, so that cache cleanup will remove this key when the TTL expire
 	cacheRecoveryTime cache.ThreadSafeStore
 }
 
@@ -185,7 +185,7 @@ func (d *stabilityPeriodChecker) getStabilityPeriodsConfigurations(ctx context.C
 
 func (d *stabilityPeriodChecker) getNodeStabilityPeriodConfiguration(ctx context.Context, node *v1.Node) (time.Duration, bool) {
 	nodeStabilityPeriod, found, err := d.getStabilityPeriodConfigurationFromAnnotation(node)
-	if err != nil {
+	if err != nil && d.eventRecorder != nil {
 		d.eventRecorder.NodeEventf(ctx, node, v1.EventTypeWarning, StabilityPeriodMisconfigured, "the value for "+StabilityPeriodAnnotationKey+" cannot be parsed as a duration: %#v", err)
 	}
 	return nodeStabilityPeriod, found
@@ -193,7 +193,7 @@ func (d *stabilityPeriodChecker) getNodeStabilityPeriodConfiguration(ctx context
 
 func (d *stabilityPeriodChecker) getPodStabilityPeriodConfiguration(ctx context.Context, pod *v1.Pod) (time.Duration, bool) {
 	podStabilityPeriod, found, err := d.getStabilityPeriodConfigurationFromAnnotation(pod)
-	if err != nil {
+	if err != nil && d.eventRecorder != nil {
 		d.eventRecorder.PodEventf(ctx, pod, v1.EventTypeWarning, StabilityPeriodMisconfigured, "the value for "+StabilityPeriodAnnotationKey+" cannot be parsed as a duration: %#v", err)
 	}
 	return podStabilityPeriod, found
