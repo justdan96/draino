@@ -495,7 +495,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
 	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(ctx, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{})
 
-	persistor := drainbuffer.NewConfigMapPersistor(mgr.GetClient(), "", "")
+	persistor := drainbuffer.NewConfigMapPersistor(mgr.GetClient(), options.drainBufferConfigMapName, options.namespace)
 	drainBuffer, err := drainbuffer.NewDrainBuffer(ctx, persistor, clock.RealClock{}, mgr.GetLogger())
 
 	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
