@@ -70,7 +70,7 @@ func (opts *FakeOptions) ApplyDefaults() error {
 	if opts.DrainBuffer == nil {
 		var err error
 		persistor := drainbuffer.NewConfigMapPersistor(opts.ClientWrapper.GetManagerClient(), "fake-buffer", "default")
-		opts.DrainBuffer, err = drainbuffer.NewDrainBuffer(context.Background(), persistor, opts.Clock, opts.Logger)
+		opts.DrainBuffer, err = drainbuffer.NewDrainBuffer(context.Background(), persistor, opts.Clock, *opts.Logger)
 		if err != nil {
 			return err
 		}

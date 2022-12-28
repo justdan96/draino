@@ -39,7 +39,7 @@ type drainBufferImpl struct {
 }
 
 // NewDrainBuffer returns a new instance of a drain buffer
-func NewDrainBuffer(ctx context.Context, persistor Persistor, clock clock.Clock, logger *logr.Logger) (DrainBuffer, error) {
+func NewDrainBuffer(ctx context.Context, persistor Persistor, clock clock.Clock, logger logr.Logger) (DrainBuffer, error) {
 	// load existing cache from the persistence layer
 	cacheBytes, exist, err := persistor.Load()
 	if err != nil {
@@ -58,7 +58,7 @@ func NewDrainBuffer(ctx context.Context, persistor Persistor, clock clock.Clock,
 		clock:     clock,
 		persistor: persistor,
 		cache:     *cache,
-		logger:    logger,
+		logger:    &logger,
 	}
 
 	go drainBuffer.persistenceLoop(ctx)

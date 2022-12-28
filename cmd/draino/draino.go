@@ -32,6 +32,7 @@ import (
 	"github.com/planetlabs/draino/internal/candidate_runner"
 	"github.com/planetlabs/draino/internal/candidate_runner/filters"
 	"github.com/planetlabs/draino/internal/cli"
+	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
 	"github.com/planetlabs/draino/internal/drain_runner"
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
@@ -494,6 +495,11 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
 	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(ctx, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{})
 
+	persistor := drainbuffer.NewConfigMapPersistor(mgr.GetClient(), "", "")
+	drainBuffer, err := drainbuffer.NewDrainBuffer(ctx, persistor, clock.RealClock{}, mgr.GetLogger())
+
+	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
+
 	filterFactory, err := filters.NewFactory(
 		filters.WithLogger(mgr.GetLogger()),
 		filters.WithRetryWall(retryWall),
@@ -502,6 +508,8 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		filters.WithNodeLabelsFilterFunction(filtersDef.nodeLabelFilter),
 		filters.WithGlobalConfig(globalConfig),
 		filters.WithStabilityPeriodChecker(stabilityPeriodChecker),
+		filters.WithDrainBuffer(drainBuffer),
+		filters.WithGroupKeyGetter(keyGetter),
 	)
 	if err != nil {
 		logger.Error(err, "failed to configure the filters")
@@ -520,6 +528,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		drain_runner.WithPVProtector(pvProtector),
 		drain_runner.WithEventRecorder(eventRecorder),
 		drain_runner.WithFilter(filterFactory.BuildScopeFilter()),
+		drain_runner.WithDrainBuffer(drainBuffer),
 	)
 	if err != nil {
 		logger.Error(err, "failed to configure the drain_runner")
@@ -546,8 +555,6 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		logger.Error(err, "failed to configure the candidate_runner")
 		return err
 	}
-
-	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
 
 	groupRegistry := groups.NewGroupRegistry(ctx, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory, filtersDef.nodeLabelFilter, store.HasSynced)
 	if err = groupRegistry.SetupWithManager(mgr); err != nil {

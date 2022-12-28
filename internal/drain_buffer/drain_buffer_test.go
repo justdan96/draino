@@ -55,7 +55,7 @@ func TestDrainBuffer(t *testing.T) {
 			// initial setup
 			ctx, cancel := context.WithCancel(context.Background())
 			persistor := NewConfigMapPersistor(wrapper.GetManagerClient(), cmName, cmNS)
-			interf, err := NewDrainBuffer(ctx, persistor, tt.Clock, &logger)
+			interf, err := NewDrainBuffer(ctx, persistor, tt.Clock, logger)
 			assert.NoError(t, err, "cannot create drain buffer")
 			drainBuffer := interf.(*drainBufferImpl)
 
@@ -70,7 +70,7 @@ func TestDrainBuffer(t *testing.T) {
 			ctx, cancel = context.WithCancel(context.Background())
 			defer cancel()
 			persistor = NewConfigMapPersistor(wrapper.GetManagerClient(), cmName, cmNS)
-			interf, err = NewDrainBuffer(ctx, persistor, tt.Clock, &logger)
+			interf, err = NewDrainBuffer(ctx, persistor, tt.Clock, logger)
 			assert.NoError(t, err, "cannot create drain buffer")
 			drainBuffer = interf.(*drainBufferImpl)
 
