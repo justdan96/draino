@@ -11,8 +11,13 @@ func NewDrainBufferFilter(drainBuffer drainbuffer.DrainBuffer, clock clock.Clock
 	return FilterFromFunction(
 		"drain_buffer",
 		func(n *v1.Node) bool {
-			groupKey := groupKeyGetter.GetGroupKey(n)
-			return drainBuffer.NextDrain(groupKey).Before(clock.Now())
+			nextDrain, err := drainBuffer.NextDrain(groupKeyGetter.GetGroupKey(n))
+
+			if err != nil {
+				return false
+			}
+
+			return nextDrain.Before(clock.Now())
 		},
 	)
 }

@@ -496,8 +496,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(ctx, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{})
 
 	persistor := drainbuffer.NewConfigMapPersistor(mgr.GetClient(), options.drainBufferConfigMapName, options.namespace)
-	drainBuffer, err := drainbuffer.NewDrainBuffer(ctx, persistor, clock.RealClock{}, mgr.GetLogger())
-
+	drainBuffer := drainbuffer.NewDrainBuffer(ctx, persistor, clock.RealClock{}, mgr.GetLogger())
 	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
 
 	filterFactory, err := filters.NewFactory(

@@ -192,7 +192,10 @@ func (runner *drainRunner) drainCandidate(ctx context.Context, info *groups.Runn
 		return err
 	}
 
-	runner.drainBuffer.StoreSuccessfulDrain(info.Key, 0)
+	err = runner.drainBuffer.StoreSuccessfulDrain(info.Key, 0)
+	if err != nil {
+		return err
+	}
 	_, err = k8sclient.AddNLATaint(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDrained)
 	return err
 }

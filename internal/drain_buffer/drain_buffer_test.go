@@ -55,12 +55,12 @@ func TestDrainBuffer(t *testing.T) {
 			// initial setup
 			ctx, cancel := context.WithCancel(context.Background())
 			persistor := NewConfigMapPersistor(wrapper.GetManagerClient(), cmName, cmNS)
-			interf, err := NewDrainBuffer(ctx, persistor, tt.Clock, logger)
-			assert.NoError(t, err, "cannot create drain buffer")
+			interf := NewDrainBuffer(ctx, persistor, tt.Clock, logger)
 			drainBuffer := interf.(*drainBufferImpl)
 
 			// create new entry
-			drainBuffer.StoreSuccessfulDrain("foobar", tt.DrainBuffer)
+			err = drainBuffer.StoreSuccessfulDrain("foobar", tt.DrainBuffer)
+			assert.NoError(t, err, "failed to store successful drain")
 			err = drainBuffer.cleanupAndPersist()
 			assert.NoError(t, err, "cannot persist drain buffer")
 			// Close old buffer cleanup
@@ -70,16 +70,17 @@ func TestDrainBuffer(t *testing.T) {
 			ctx, cancel = context.WithCancel(context.Background())
 			defer cancel()
 			persistor = NewConfigMapPersistor(wrapper.GetManagerClient(), cmName, cmNS)
-			interf, err = NewDrainBuffer(ctx, persistor, tt.Clock, logger)
-			assert.NoError(t, err, "cannot create drain buffer")
+			interf = NewDrainBuffer(ctx, persistor, tt.Clock, logger)
 			drainBuffer = interf.(*drainBufferImpl)
 
 			// Move clock forward & trigger cleanup
 			tt.Clock.Step(tt.Step)
+			drainBuffer.initialize()
 			drainBuffer.cleanupCache()
 
 			// Check if clock is properly set
-			next := drainBuffer.NextDrain("foobar")
+			next, err := drainBuffer.NextDrain("foobar")
+			assert.NoError(t, err, "failed to get next drain for group")
 			if tt.ShouldFind {
 				until := tt.Clock.Now().Add(-tt.Step).Add(tt.DrainBuffer)
 				assert.True(t, next.Before(until.Add(time.Second)))
