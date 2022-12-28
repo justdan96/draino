@@ -19,6 +19,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/DataDog/compute-go/kubeclient"
 	"github.com/DataDog/compute-go/service"
 	"github.com/DataDog/compute-go/version"
@@ -27,17 +34,12 @@ import (
 	"github.com/planetlabs/draino/internal/cli"
 	"github.com/planetlabs/draino/internal/drain_runner"
 	"github.com/planetlabs/draino/internal/groups"
+	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	protector "github.com/planetlabs/draino/internal/protector"
 	"github.com/spf13/cobra"
 	"k8s.io/utils/clock"
-	"net/http"
-	_ "net/http/pprof"
-	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sort"
-	"strings"
-	"time"
 
 	"github.com/DataDog/compute-go/controllerruntime"
 	"github.com/DataDog/compute-go/infraparameters"
@@ -508,6 +510,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		return err
 	}
 
+	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(ctx, logger, mgr.GetClient(), eventRecorder, store, indexer, analyser.StabilityPeriodCheckerConfiguration{})
 	filterFactory, err := filters.NewFactory(
 		filters.WithLogger(mgr.GetLogger()),
 		filters.WithRetryWall(retryWall),
@@ -515,6 +518,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		filters.WithCordonPodFilter(filtersDef.cordonPodFilter),
 		filters.WithNodeLabelsFilterFunction(filtersDef.nodeLabelFilter),
 		filters.WithGlobalConfig(globalConfig),
+		filters.WithStabilityPeriodChecker(stabilityPeriodChecker),
 	)
 	if err != nil {
 		logger.Error(err, "failed to configure the filters")

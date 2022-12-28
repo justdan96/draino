@@ -41,7 +41,7 @@ type stabilityPeriodChecker struct {
 	kclient               client.Client
 	eventRecorder         kubernetes.EventRecorder
 	store                 kubernetes.RuntimeObjectStore
-	indexer               index.Indexer
+	indexer               *index.Indexer
 	stabilityPeriodConfig StabilityPeriodCheckerConfiguration
 
 	// cacheRecoveryTime for a combination {Node+Pods} this cache store the estimated recoveryTime
@@ -90,7 +90,7 @@ func (c *StabilityPeriodCheckerConfiguration) applyDefault() {
 
 // NewStabilityPeriodChecker constructor for the StabilityPeriodChecker
 func NewStabilityPeriodChecker(ctx context.Context, logger logr.Logger, kclient client.Client,
-	eventRecorder kubernetes.EventRecorder, store kubernetes.RuntimeObjectStore, indexer index.Indexer,
+	eventRecorder kubernetes.EventRecorder, store kubernetes.RuntimeObjectStore, indexer *index.Indexer,
 	config StabilityPeriodCheckerConfiguration) StabilityPeriodChecker {
 	config.applyDefault()
 
