@@ -1,4 +1,4 @@
-package candidate_runner
+package sorters
 
 import (
 	v1 "k8s.io/api/core/v1"
@@ -34,12 +34,48 @@ func TestCompareNoAnnotationDrainASAP(t *testing.T) {
 			n2: &v1.Node{},
 		},
 		{
-			name: "no labels on 2", want: false,
+			name: "labels on both with empty value", want: false,
 			n1: &v1.Node{ObjectMeta: meta.ObjectMeta{
 				Labels: map[string]string{NodeAnnotationDrainASAPKey: ""},
 			}},
 			n2: &v1.Node{ObjectMeta: meta.ObjectMeta{
 				Labels: map[string]string{NodeAnnotationDrainASAPKey: ""},
+			}},
+		},
+		{
+			name: "labels on both with empty value and numeric on 1", want: true,
+			n1: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: "10"},
+			}},
+			n2: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: ""},
+			}},
+		},
+		{
+			name: "labels on both with empty value and numeric on 2", want: false,
+			n1: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: ""},
+			}},
+			n2: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: "1"},
+			}},
+		},
+		{
+			name: "labels on both with values 1 bigger", want: true,
+			n1: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: "10"},
+			}},
+			n2: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: "9"},
+			}},
+		},
+		{
+			name: "labels on both with values 1 smaller", want: false,
+			n1: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: "8"},
+			}},
+			n2: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: "9"},
 			}},
 		},
 		{
@@ -63,8 +99,8 @@ func TestCompareNoAnnotationDrainASAP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CompareNoAnnotationDrainASAP(tt.n1, tt.n2); got != tt.want {
-				t.Errorf("CompareNoAnnotationDrainASAP() = %v, want %v", got, tt.want)
+			if got := CompareNodeAnnotationDrainASAP(tt.n1, tt.n2); got != tt.want {
+				t.Errorf("CompareNodeAnnotationDrainASAP() = %v, want %v", got, tt.want)
 			}
 		})
 	}

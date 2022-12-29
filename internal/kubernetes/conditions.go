@@ -16,7 +16,7 @@ type SuppliedCondition struct {
 	Type     core.NodeConditionType `json:"type"`
 	Status   core.ConditionStatus   `json:"conditionStatus"`
 	Delay    string                 `json:"delay"`
-	Priority int                    `json:"priority"` // higher value first, default is 0, negative value are accepted
+	Priority int                    `json:"priority"` // higher value first in priority, default is 0, negative value are accepted
 
 	parsedDelay time.Duration
 }
