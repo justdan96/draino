@@ -3,6 +3,7 @@ package candidate_runner
 import (
 	"context"
 	"fmt"
+	"github.com/DataDog/compute-go/logs"
 	"strings"
 	"time"
 
@@ -142,7 +143,7 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 			}
 			remainCandidateSlot--
 		}
-		runner.logger.Info("Remain slot after drain candidate analysis", "count", remainCandidateSlot)
+		runner.logger.V(logs.ZapDebug).Info("Remain slot after drain candidate analysis", "count", remainCandidateSlot)
 		dataInfo.Slots = fmt.Sprintf("%d/%d", remainCandidateSlot, runner.maxSimultaneousCandidates)
 
 	}, runner.runEvery)

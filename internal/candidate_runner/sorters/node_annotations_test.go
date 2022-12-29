@@ -52,6 +52,24 @@ func TestCompareNoAnnotationDrainASAP(t *testing.T) {
 			}},
 		},
 		{
+			name: "default value is 1, so no difference with an annotation with value 1", want: false,
+			n1: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: "1"},
+			}},
+			n2: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: ""},
+			}},
+		},
+		{
+			name: "default value is 1, so no difference with an annotation with value 1 (on second)", want: false,
+			n1: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: ""},
+			}},
+			n2: &v1.Node{ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{NodeAnnotationDrainASAPKey: "1"},
+			}},
+		},
+		{
 			name: "labels on both with empty value and numeric on 2", want: false,
 			n1: &v1.Node{ObjectMeta: meta.ObjectMeta{
 				Labels: map[string]string{NodeAnnotationDrainASAPKey: ""},

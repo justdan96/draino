@@ -6,7 +6,10 @@ import (
 )
 
 const (
-	NodeAnnotationDrainASAPKey = "node-lifecycle.datadoghq.com/drain-asap" // The annotation can have a numeric value associated. The higher the value, the higher the priority
+	// NodeAnnotationDrainASAPKey The annotation can have a numeric value associated. The higher the value, the higher the priority
+	// Default value if the annotation is present is 1.
+	// A negative value would mean that the node is to be drained not asap but latter, after the ones not having the annotation
+	NodeAnnotationDrainASAPKey = "node-lifecycle.datadoghq.com/drain-asap"
 )
 
 func CompareNodeAnnotationDrainASAP(n1, n2 *v1.Node) bool {
@@ -25,7 +28,7 @@ func CompareNodeAnnotationDrainASAP(n1, n2 *v1.Node) bool {
 	}
 	if n2.Labels != nil {
 		if str, ok := n2.Labels[NodeAnnotationDrainASAPKey]; ok {
-			a2 = 2
+			a2 = 1
 			if str != "" {
 				if a2, err = strconv.Atoi(str); err != nil {
 					a2 = 1 // go back to default value in case of conversion error
