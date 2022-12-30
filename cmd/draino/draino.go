@@ -38,6 +38,7 @@ import (
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
+	"github.com/planetlabs/draino/internal/observability"
 	protector "github.com/planetlabs/draino/internal/protector"
 	"github.com/spf13/cobra"
 	"k8s.io/utils/clock"
@@ -333,15 +334,6 @@ func main() {
 			return fmt.Errorf("failed to get hostname: %v", err)
 		}
 
-		scopeObserver := kubernetes.NewScopeObserver(cs, globalConfig, runtimeObjectStoreImpl, options.scopeAnalysisPeriod, cordonPodFilteringFunc,
-			kubernetes.PodOrControllerHasAnyOfTheAnnotations(runtimeObjectStoreImpl, options.optInPodAnnotations...),
-			kubernetes.PodOrControllerHasAnyOfTheAnnotations(runtimeObjectStoreImpl, options.cordonProtectedPodAnnotations...),
-			nodeLabelFilterFunc, log)
-		go scopeObserver.Run(ctx.Done())
-		if options.resetScopeLabel == true {
-			go scopeObserver.Reset()
-		}
-
 		lock, err := resourcelock.New(
 			resourcelock.EndpointsLeasesResourceLock,
 			options.namespace,
@@ -604,6 +596,19 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	if errCli := cliHandlers.Initialize(logger, groupRegistry, drainCandidateRunnerFactory.BuildCandidateInfo(), drainRunnerFactory.BuildRunner()); errCli != nil {
 		logger.Error(errCli, "Failed to initialize CLIHandlers")
 		return errCli
+	}
+
+	scopeObserver := observability.NewScopeObserver(cs, globalConfig, store, options.scopeAnalysisPeriod, filtersDef.cordonPodFilter,
+		kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.optInPodAnnotations...),
+		kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.cordonProtectedPodAnnotations...),
+		filtersDef.nodeLabelFilter, zlog, retryWall)
+	if options.resetScopeLabel == true {
+		go scopeObserver.Reset()
+	}
+
+	if err := mgr.Add(scopeObserver); err != nil {
+		logger.Error(err, "failed to setup scope observer with controller runtime")
+		return err
 	}
 
 	logger.Info("ControllerRuntime bootstrap done, running the manager")

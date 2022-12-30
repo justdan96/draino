@@ -89,7 +89,6 @@ func (wall *retryWallImpl) SetNewRetryWallTimestamp(ctx context.Context, node *c
 	}
 
 	retryCount += 1
-	nodeRetries.WithLabelValues(node.Name).Set(float64(retryCount))
 	return wall.patchRetryCountOnNode(ctx, node, retryCount, reason, now)
 }
 
@@ -104,8 +103,6 @@ func (wall *retryWallImpl) GetRetryWallTimestamp(node *corev1.Node) time.Time {
 	if retries == 0 {
 		return TimeZero
 	}
-
-	nodeRetries.WithLabelValues(node.Name).Set(float64(retries))
 
 	strategy := wall.getStrategyFromNode(node)
 	if retries >= strategy.GetAlertThreashold() {
@@ -155,7 +152,6 @@ func (wall *retryWallImpl) getStrategyFromNode(node *corev1.Node) RetryStrategy 
 }
 
 func (wall *retryWallImpl) ResetRetryCount(ctx context.Context, node *corev1.Node) error {
-	nodeRetries.DeleteLabelValues(node.Name)
 	return wall.patchRetryCountOnNode(ctx, node, 0, "Retry count was reset to zero", time.Now())
 }
 

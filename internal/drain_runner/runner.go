@@ -199,8 +199,6 @@ func (runner *drainRunner) drainCandidate(ctx context.Context, info *groups.Runn
 	// We can ignore the error as it's only fired when the drain buffer is not initialized.
 	// This cannot happen as the main loop of the drain runner will be blocked in that case.
 	_ = runner.drainBuffer.StoreSuccessfulDrain(info.Key, 0)
-	// This is used to cleanup the retry count metric, so it's okay to ignore the error for stability reasons.
-	_ = runner.retryWall.ResetRetryCount(ctx, candidate)
 	_, err = k8sclient.AddNLATaint(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDrained)
 	return err
 }
