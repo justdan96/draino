@@ -73,7 +73,7 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		defer func() {
 			dataInfo.LastTime = runner.clock.Now()
 			dataInfo.ProcessingDuration = runner.clock.Now().Sub(start).String()
-			info.Data.Set(CandidateRunnerInfo, dataInfo)
+			info.Data.Set(CandidateRunnerInfoKey, dataInfo)
 		}()
 
 		nodes, err := index.GetFromIndex[corev1.Node](ctx, runner.sharedIndexInformer, groups.SchedulingGroupIdx, string(info.Key))
@@ -111,23 +111,8 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		nodes = runner.filter.Filter(nodes)
 		dataInfo.FilteredOutCount = evaluatedCount - len(nodes)
 
-		//fmt.Println("Nodes: ")
-		//for _, node := range nodes {
-		//	fmt.Println(node.Name)
-		//}
-		//
-		//dumpNodeProvider := runner.GetNodeIterator(nodes).(scheduler.SortingTree[*corev1.Node])
-		//fmt.Println("!!!!!!!!!! Dump [Begin] !!!!!!!!!!!")
-		//it := 0
-		//for _, ok := dumpNodeProvider.Next(); ok; _, ok = dumpNodeProvider.Next() {
-		//	it++
-		//	fmt.Printf("!!!!!!!!!! Dump [iter %d] !!!!!!!!!!!\n", it)
-		//}
-		//fmt.Println(dumpNodeProvider.AsDotGraph(true, func(n *corev1.Node) string { return n.GetName() }))
-		//fmt.Println("!!!!!!!!!! Dump [End] !!!!!!!!!!!")
-
 		nodeProvider := runner.GetNodeIterator(nodes)
-		for node, ok := nodeProvider.Next(); ok && remainCandidateSlot > 0; node, ok = nodeProvider.Next() {
+		for node, ok := nodeProvider.Next(); ok; node, ok = nodeProvider.Next() {
 			logForNode := runner.logger.WithValues("node", node.Name)
 			// check that the node can be drained
 			canDrain, reasons, errDrainSimulation := runner.drainSimulator.SimulateDrain(ctx, node)
@@ -157,7 +142,11 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 				}
 			}
 			remainCandidateSlot--
+			if remainCandidateSlot <= 0 {
+				break
+			}
 		}
+		dataInfo.lastNodeIterator = nodeProvider
 		runner.logger.V(logs.ZapDebug).Info("Remain slot after drain candidate analysis", "count", remainCandidateSlot)
 		dataInfo.Slots = fmt.Sprintf("%d/%d", remainCandidateSlot, runner.maxSimultaneousCandidates)
 

@@ -9,12 +9,15 @@ import (
 	"github.com/spf13/cobra"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 )
 
 type CLICommands struct {
 	ServerAddr *string
+
+	groupName string
 
 	tableOutputParams table.OutputParameters
 	outputFormat      outputFormatType
@@ -24,7 +27,7 @@ func (h *CLICommands) Commands() []*cobra.Command {
 	groupCmd := &cobra.Command{
 		Use:        "group",
 		SuggestFor: []string{"group", "groups"},
-		Args:       cobra.MaximumNArgs(1),
+		Args:       cobra.MaximumNArgs(2),
 		Run:        func(cmd *cobra.Command, args []string) {},
 	}
 
@@ -32,10 +35,11 @@ func (h *CLICommands) Commands() []*cobra.Command {
 	groupCmd.PersistentFlags().BoolVarP(&h.tableOutputParams.NoHeader, "no-header", "", false, "do not display table header")
 	groupCmd.PersistentFlags().StringVarP(&h.tableOutputParams.Separator, "separator", "s", "\t|", "column Separator in table output")
 	groupCmd.PersistentFlags().IntVarP(&h.tableOutputParams.Padding, "padding", "", 3, "Padding in table output")
-	groupCmd.PersistentFlags().StringArrayVarP(&h.tableOutputParams.Sort, "dort", "", nil, "comma separated list of columns for sorting table output")
+	groupCmd.PersistentFlags().StringArrayVarP(&h.tableOutputParams.Sort, "sort", "", nil, "comma separated list of columns for sorting table output")
 	groupCmd.PersistentFlags().StringArrayVarP(&h.tableOutputParams.ColumnsVisible, "visible", "", nil, "comma separated list of visible columns for table output")
 	groupCmd.PersistentFlags().StringArrayVarP(&h.tableOutputParams.ColumnsHide, "hidden", "", nil, "comma separated list of hidden columns for table output")
 	groupCmd.PersistentFlags().StringArrayVarP(&h.tableOutputParams.Filter, "filter", "", nil, "filtering expression for table output")
+	groupCmd.PersistentFlags().StringVarP(&h.groupName, "group-name", "", "", "name of the group")
 
 	groupListCmd := &cobra.Command{
 		Use:        "list",
@@ -45,8 +49,23 @@ func (h *CLICommands) Commands() []*cobra.Command {
 			return h.cmdGroupList()
 		},
 	}
+	groupGraphCmd := &cobra.Command{
+		Use:        "graph",
+		SuggestFor: []string{"graph"},
+		Args:       cobra.ExactArgs(1),
+		Run:        func(cmd *cobra.Command, args []string) {},
+	}
+	groupGraphLastCmd := &cobra.Command{
+		Use:        "last",
+		SuggestFor: []string{"last"},
+		Args:       cobra.ExactArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return h.cmdGroupGraphLast()
+		},
+	}
+	groupGraphCmd.AddCommand(groupGraphLastCmd)
 
-	groupCmd.AddCommand(groupListCmd)
+	groupCmd.AddCommand(groupListCmd, groupGraphCmd)
 
 	return []*cobra.Command{groupCmd}
 }
@@ -66,6 +85,18 @@ func ReadFromURL(url string) ([]byte, error) {
 		return nil, fmt.Errorf("%s\n%s", resp.Status, string(b))
 	}
 	return b, nil
+}
+
+func (h *CLICommands) cmdGroupGraphLast() error {
+	params := url.Values{}
+	params.Add("group-name", h.groupName)
+	b, err := ReadFromURL("http://" + *h.ServerAddr + "/groups/graph/last?" + params.Encode())
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(string(b))
+	return nil
 }
 
 func (h *CLICommands) cmdGroupList() error {
@@ -90,7 +121,7 @@ func (h *CLICommands) cmdGroupList() error {
 		func(obj interface{}) []string {
 			item := obj.(groups.RunnerInfo)
 
-			raw, _ := item.Data.Get(candidate_runner.CandidateRunnerInfo)
+			raw, _ := item.Data.Get(candidate_runner.CandidateRunnerInfoKey)
 			var candidateDataInfo candidate_runner.DataInfo
 			candidateDataInfo.Import(raw)
 
