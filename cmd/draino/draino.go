@@ -459,6 +459,15 @@ func (r *RunTillSuccess) Start(parent context.Context) error {
 	return nil
 }
 
+// RunOnce implement's the manager.Runnable interface and should be used to execute an action once
+type RunOnce struct {
+	fn func(context.Context) error
+}
+
+func (r *RunOnce) Start(ctx context.Context) error {
+	return r.fn(ctx)
+}
+
 // getInitDrainBufferRunner returns a Runnable that is responsible for initializing the drain buffer
 func getInitDrainBufferRunner(drainBuffer drainbuffer.DrainBuffer, logger *logr.Logger) manager.Runnable {
 	return &RunTillSuccess{
@@ -602,8 +611,13 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.optInPodAnnotations...),
 		kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.cordonProtectedPodAnnotations...),
 		filtersDef.nodeLabelFilter, zlog, retryWall, keyGetter)
+
 	if options.resetScopeLabel == true {
-		go scopeObserver.Reset()
+		err = mgr.Add(&RunOnce{fn: func(context.Context) error { scopeObserver.Reset(); return nil }})
+		if err != nil {
+			logger.Error(err, "failed to attach scope observer cleanup")
+			return err
+		}
 	}
 
 	if err := mgr.Add(scopeObserver); err != nil {
