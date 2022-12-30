@@ -245,7 +245,7 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 					continue
 				}
 
-				s.ProduceNewNodeMetrics(node)
+				s.ProduceNodeMetrics(node)
 
 				nodeTags := kubernetes.GetNodeTagsValues(node)
 				conditions := kubernetes.GetNodeOffendingConditions(node, s.globalConfig.SuppliedConditions)
@@ -290,7 +290,7 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 	}
 }
 
-func (s *DrainoConfigurationObserverImpl) ProduceNewNodeMetrics(node *v1.Node) {
+func (s *DrainoConfigurationObserverImpl) ProduceNodeMetrics(node *v1.Node) {
 	nodeLabelValues := []string{node.Name, string(s.groupKeyGetter.GetGroupKey(node))}
 	if retries := s.retryWall.GetDrainRetryAttemptsCount(node); retries != 0 {
 		nodeRetries.WithLabelValues(nodeLabelValues...).Set(float64(retries))
