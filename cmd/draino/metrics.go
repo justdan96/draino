@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"time"
 
 	"contrib.go.opencensus.io/exporter/prometheus"
 	"github.com/planetlabs/draino/internal/groups"
@@ -90,7 +89,7 @@ func DrainoLegacyMetrics(options *Options, logger *zap.Logger) {
 	}}
 
 	groups.RegisterMetrics(promOptions.Registry)
-	observability.RegisterNewMetrics(promOptions.Registry, 10*time.Second)
+	observability.RegisterNewMetrics(promOptions.Registry, options.scopeAnalysisPeriod)
 
 	go func() {
 		logger.Info("web server is running", zap.String("listen", options.listen))
