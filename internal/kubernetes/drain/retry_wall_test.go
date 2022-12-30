@@ -131,7 +131,7 @@ func TestRetryWall(t *testing.T) {
 
 			// inject drain failures
 			for i := 0; i < tt.Failures; i++ {
-				if err := wall.SetNewRetryWallTimestamp(context.Background(), tt.Node, "test-message", tt.Timestamp); err != nil {
+				if _, err := wall.SetNewRetryWallTimestamp(context.Background(), tt.Node, "test-message", tt.Timestamp); err != nil {
 					assert.NoError(t, err, "cannot mark node drain failure")
 				}
 			}
@@ -162,7 +162,7 @@ func TestRetryWall(t *testing.T) {
 			assert.NotEmpty(t, condition.Message, "condition message should have the proper failure count")
 
 			// reset retry counter
-			err = wall.ResetRetryCount(context.Background(), &node)
+			_, err = wall.ResetRetryCount(context.Background(), &node)
 			assert.NoError(t, err, "cannot reset retry count on node")
 
 			// get latest version of node
