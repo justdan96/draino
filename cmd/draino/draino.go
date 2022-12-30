@@ -601,7 +601,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	scopeObserver := observability.NewScopeObserver(cs, globalConfig, store, options.scopeAnalysisPeriod, filtersDef.cordonPodFilter,
 		kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.optInPodAnnotations...),
 		kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.cordonProtectedPodAnnotations...),
-		filtersDef.nodeLabelFilter, zlog, retryWall)
+		filtersDef.nodeLabelFilter, zlog, retryWall, keyGetter)
 	if options.resetScopeLabel == true {
 		go scopeObserver.Reset()
 	}

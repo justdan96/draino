@@ -11,12 +11,13 @@ import (
 const (
 	RetryWallSubsystem = "retry_wall"
 	NewTagNodeName     = "node_name"
+	NewTagGroupKey     = "group_key"
 )
 
 var (
 	registerMetricsOnce sync.Once
 
-	nodeRetriesTags = []string{NewTagNodeName}
+	nodeRetriesTags = []string{NewTagNodeName, NewTagGroupKey}
 	nodeRetries     = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Subsystem: RetryWallSubsystem,
 		Name:      "node_retries",
@@ -30,8 +31,8 @@ func initGaugeCleaner(cleanupPeriod time.Duration) {
 }
 
 func RegisterNewMetrics(registry *prometheus.Registry, cleanupPeriod time.Duration) {
-	initGaugeCleaner(cleanupPeriod)
 	registerMetricsOnce.Do(func() {
+		initGaugeCleaner(cleanupPeriod)
 		registry.MustRegister(nodeRetries)
 	})
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"go.opencensus.io/stats"
@@ -137,13 +138,15 @@ type DrainoConfigurationObserverImpl struct {
 	userOptOutPodFilter kubernetes.PodFilterFunc
 	userOptInPodFilter  kubernetes.PodFilterFunc
 	logger              *zap.Logger
+	retryWall           drain.RetryWall
+	groupKeyGetter      groups.GroupKeyGetter
 
 	metricsObjects metricsObjectsForObserver
 }
 
 var _ DrainoConfigurationObserver = &DrainoConfigurationObserverImpl{}
 
-func NewScopeObserver(client client.Interface, globalConfig kubernetes.GlobalConfig, runtimeObjectStore kubernetes.RuntimeObjectStore, analysisPeriod time.Duration, podFilterFunc, userOptInPodFilter, userOptOutPodFilter kubernetes.PodFilterFunc, nodeFilterFunc func(obj interface{}) bool, log *zap.Logger, retryWall drain.RetryWall) DrainoConfigurationObserver {
+func NewScopeObserver(client client.Interface, globalConfig kubernetes.GlobalConfig, runtimeObjectStore kubernetes.RuntimeObjectStore, analysisPeriod time.Duration, podFilterFunc, userOptInPodFilter, userOptOutPodFilter kubernetes.PodFilterFunc, nodeFilterFunc func(obj interface{}) bool, log *zap.Logger, retryWall drain.RetryWall, groupKeyGetter groups.GroupKeyGetter) DrainoConfigurationObserver {
 
 	// We are not adding a BucketRateLimiter to that list because the same nodes are going to be appended periodically if the update fails
 	// Failing nodes will already be in the queue with a retry. Added a BucketRL proved to be a problem here is the client side is not able to dequeue
@@ -168,6 +171,8 @@ func NewScopeObserver(client client.Interface, globalConfig kubernetes.GlobalCon
 		globalConfig:         globalConfig,
 		queueNodeToBeUpdated: workqueue.NewNamedRateLimitingQueue(workqueue.NewMaxOfRateLimiter(rateLimiters...), "nodeUpdater"),
 		nodePatchLimiter:     flowcontrol.NewTokenBucketRateLimiter(50, 10), // client side protection
+		retryWall:            retryWall,
+		groupKeyGetter:       groupKeyGetter,
 	}
 	scopeObserver.metricsObjects.initializeQueueMetrics()
 
@@ -240,7 +245,7 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 					continue
 				}
 
-				s.AppendNewMetrics(node)
+				s.ProduceNewNodeMetrics(node)
 
 				nodeTags := kubernetes.GetNodeTagsValues(node)
 				conditions := kubernetes.GetNodeOffendingConditions(node, s.globalConfig.SuppliedConditions)
@@ -285,8 +290,11 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 	}
 }
 
-func (s *DrainoConfigurationObserverImpl) AppendNewMetrics(node *v1.Node) {
-
+func (s *DrainoConfigurationObserverImpl) ProduceNewNodeMetrics(node *v1.Node) {
+	nodeLabelValues := []string{node.Name, string(s.groupKeyGetter.GetGroupKey(node))}
+	if retries := s.retryWall.GetDrainRetryAttemptsCount(node); retries != 0 {
+		nodeRetries.WithLabelValues(nodeLabelValues...).Set(float64(retries))
+	}
 }
 
 func NodeInScopeWithConditionCheck(conditions []kubernetes.SuppliedCondition, node *v1.Node) bool {
