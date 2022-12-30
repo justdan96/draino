@@ -15,8 +15,8 @@ const (
 func CompareNodeAnnotationDrainASAP(n1, n2 *v1.Node) bool {
 	var err error
 	a1, a2 := 0, 0
-	if n1.Labels != nil {
-		if str, ok := n1.Labels[NodeAnnotationDrainASAPKey]; ok {
+	if n1.Annotations != nil {
+		if str, ok := n1.Annotations[NodeAnnotationDrainASAPKey]; ok {
 			a1 = 1
 			if str != "" {
 				if a1, err = strconv.Atoi(str); err != nil {
@@ -26,8 +26,8 @@ func CompareNodeAnnotationDrainASAP(n1, n2 *v1.Node) bool {
 		}
 
 	}
-	if n2.Labels != nil {
-		if str, ok := n2.Labels[NodeAnnotationDrainASAPKey]; ok {
+	if n2.Annotations != nil {
+		if str, ok := n2.Annotations[NodeAnnotationDrainASAPKey]; ok {
 			a2 = 1
 			if str != "" {
 				if a2, err = strconv.Atoi(str); err != nil {

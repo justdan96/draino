@@ -111,6 +111,21 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 		nodes = runner.filter.Filter(nodes)
 		dataInfo.FilteredOutCount = evaluatedCount - len(nodes)
 
+		//fmt.Println("Nodes: ")
+		//for _, node := range nodes {
+		//	fmt.Println(node.Name)
+		//}
+		//
+		//dumpNodeProvider := runner.GetNodeIterator(nodes).(scheduler.SortingTree[*corev1.Node])
+		//fmt.Println("!!!!!!!!!! Dump [Begin] !!!!!!!!!!!")
+		//it := 0
+		//for _, ok := dumpNodeProvider.Next(); ok; _, ok = dumpNodeProvider.Next() {
+		//	it++
+		//	fmt.Printf("!!!!!!!!!! Dump [iter %d] !!!!!!!!!!!\n", it)
+		//}
+		//fmt.Println(dumpNodeProvider.AsDotGraph(true, func(n *corev1.Node) string { return n.GetName() }))
+		//fmt.Println("!!!!!!!!!! Dump [End] !!!!!!!!!!!")
+
 		nodeProvider := runner.GetNodeIterator(nodes)
 		for node, ok := nodeProvider.Next(); ok && remainCandidateSlot > 0; node, ok = nodeProvider.Next() {
 			logForNode := runner.logger.WithValues("node", node.Name)
