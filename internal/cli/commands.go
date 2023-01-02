@@ -140,7 +140,7 @@ func (h *CLICommands) cmdGroupList() error {
 				fmt.Sprintf("%v", candidateDataInfo.FilteredOutCount),
 				fmt.Sprintf("%s", warn),
 				fmt.Sprintf("%v", candidateDataInfo.LastTime),
-				fmt.Sprintf("%v", candidateDataInfo.ProcessingDuration),
+				fmt.Sprintf("%v", candidateDataInfo.ProcessingDuration.String()),
 			}
 		})
 
