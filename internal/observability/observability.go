@@ -299,13 +299,11 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 func (s *DrainoConfigurationObserverImpl) ProduceGroupRunnerMetrics() {
 	infos := s.runnerInfoGetter.GetRunnerInfo()
 	for group, info := range infos {
-		raw, _ := info.Data.Get(candidate_runner.CandidateRunnerInfo)
-		var candidateDataInfo candidate_runner.DataInfo
-		candidateDataInfo.Import(raw)
+		rawCandidateRunnerInfo, _ := info.Data.Get(candidate_runner.CandidateRunnerInfoKey)
+		candidateDataInfo := rawCandidateRunnerInfo.(candidate_runner.DataInfo)
 
-		raw, _ = info.Data.Get(drain_runner.DrainRunnerInfo)
-		var drainDataInfo drain_runner.DataInfo
-		drainDataInfo.Import(raw)
+		rawDrainRunnerInfo, _ := info.Data.Get(drain_runner.DrainRunnerInfo)
+		drainDataInfo := rawDrainRunnerInfo.(drain_runner.DataInfo)
 
 		groupRunnerLoopDuration.WithLabelValues(string(group), groups.DrainCandidateRunnerName).Set(float64(candidateDataInfo.ProcessingDuration.Microseconds()))
 		groupRunnerLoopDuration.WithLabelValues(string(group), groups.DrainRunnerName).Set(float64(drainDataInfo.ProcessingDuration.Microseconds()))

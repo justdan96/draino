@@ -60,9 +60,9 @@ func (runner *drainRunner) Run(info *groups.RunnerInfo) error {
 		}
 
 		var drainInfo DataInfo
-		before := runner.clock.Now()
+		start := runner.clock.Now()
 		defer func() {
-			drainInfo.ProcessingDuration = runner.clock.Now().Sub(before)
+			drainInfo.ProcessingDuration = runner.clock.Now().Sub(start)
 			info.Data.Set(DrainRunnerInfo, drainInfo)
 		}()
 
