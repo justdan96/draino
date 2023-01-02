@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/planetlabs/draino/internal/candidate_runner"
+	"github.com/planetlabs/draino/internal/drain_runner"
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
@@ -302,7 +303,12 @@ func (s *DrainoConfigurationObserverImpl) ProduceGroupRunnerMetrics() {
 		var candidateDataInfo candidate_runner.DataInfo
 		candidateDataInfo.Import(raw)
 
+		raw, _ = info.Data.Get(drain_runner.DrainRunnerInfo)
+		var drainDataInfo drain_runner.DataInfo
+		drainDataInfo.Import(raw)
+
 		groupRunnerLoopDuration.WithLabelValues(string(group), groups.DrainCandidateRunnerName).Set(float64(candidateDataInfo.ProcessingDuration.Microseconds()))
+		groupRunnerLoopDuration.WithLabelValues(string(group), groups.DrainRunnerName).Set(float64(drainDataInfo.ProcessingDuration.Microseconds()))
 	}
 }
 
