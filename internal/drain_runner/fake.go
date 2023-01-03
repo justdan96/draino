@@ -24,7 +24,7 @@ type FakeOptions struct {
 	Preprocessors []DrainPreProzessor
 	Logger        *logr.Logger
 	RerunEvery    time.Duration
-	PVProtector   protector.PVProtector
+	PVCProtector  protector.PVCProtector
 	Filter        filters.Filter
 	DrainBuffer   drainbuffer.DrainBuffer
 
@@ -35,7 +35,7 @@ type FakeOptions struct {
 }
 
 func (opts *FakeOptions) ApplyDefaults() error {
-	if opts.PVProtector == nil {
+	if opts.PVCProtector == nil {
 		return fmt.Errorf("Please pass pv protector to fake runner")
 	}
 	if opts.ClientWrapper == nil {
@@ -108,7 +108,6 @@ func NewFakeRunner(opts *FakeOptions) (*drainRunner, error) {
 		drainer:             opts.Drainer,
 		runEvery:            opts.RerunEvery,
 		preprocessors:       opts.Preprocessors,
-		pvProtector:         opts.PVProtector,
 		eventRecorder:       &kubernetes.NoopEventRecorder{},
 		filter:              opts.Filter,
 		drainBuffer:         opts.DrainBuffer,

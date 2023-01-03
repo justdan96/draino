@@ -155,7 +155,7 @@ func TestDrainRunner(t *testing.T) {
 				ClientWrapper: wrapper,
 				Preprocessors: tt.Preprocessors,
 				Drainer:       tt.Drainer,
-				PVProtector:   protector.NewPVCProtector(store, zap.NewNop(), false),
+				PVCProtector:  protector.NewPVCProtector(store, zap.NewNop(), false),
 				Filter:        tt.Filter,
 			})
 			assert.NoError(t, err, "failed to create fake drain runner")

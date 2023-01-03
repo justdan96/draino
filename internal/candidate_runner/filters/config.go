@@ -4,12 +4,14 @@ import (
 	"errors"
 
 	"github.com/go-logr/logr"
+	"k8s.io/utils/clock"
+
 	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
-	"k8s.io/utils/clock"
+	"github.com/planetlabs/draino/internal/protector"
 )
 
 // WithOption is used to pass an option to the factory
@@ -27,6 +29,8 @@ type Config struct {
 	stabilityPeriodChecker analyser.StabilityPeriodChecker
 	groupKeyGetter         groups.GroupKeyGetter
 	drainBuffer            drainbuffer.DrainBuffer
+	pvcProtector           protector.PVCProtector
+	eventRecorder          kubernetes.EventRecorder
 
 	// With defaults
 	clock clock.Clock
@@ -70,6 +74,12 @@ func (conf *Config) Validate() error {
 	}
 	if conf.drainBuffer == nil {
 		return errors.New("drain buffer is not set")
+	}
+	if conf.eventRecorder == nil {
+		return errors.New("eventRecorder is not set")
+	}
+	if conf.pvcProtector == nil {
+		return errors.New("pvc protector is not set")
 	}
 
 	return nil
@@ -134,5 +144,17 @@ func WithGroupKeyGetter(getter groups.GroupKeyGetter) WithOption {
 func WithDrainBuffer(drainBuffer drainbuffer.DrainBuffer) WithOption {
 	return func(conf *Config) {
 		conf.drainBuffer = drainBuffer
+	}
+}
+
+func WithEventRecorder(recorder kubernetes.EventRecorder) WithOption {
+	return func(conf *Config) {
+		conf.eventRecorder = recorder
+	}
+}
+
+func WithPVCProtector(pvcProtector protector.PVCProtector) WithOption {
+	return func(conf *Config) {
+		conf.pvcProtector = pvcProtector
 	}
 }
