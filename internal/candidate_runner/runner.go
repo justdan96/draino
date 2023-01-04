@@ -204,11 +204,11 @@ func (runner *candidateRunner) runCleanupWithContext(ctx context.Context, info *
 	time.Sleep(runner.runEvery / 2)
 	// run an endless loop until there are no drain candidates left
 	wait.UntilWithContext(ctx, func(ctx context.Context) {
-		span, ctx := tracer.StartSpanFromContext(ctx, "runCleanupWithContext")
+		span, ctx := tracer.StartSpanFromContext(ctx, "RunCleanupWithContext")
 		defer span.Finish()
 
 		start := runner.clock.Now()
-		var dataInfo DataInfoCleanup
+		var dataInfo DataInfoForCleanupActivity
 		defer func() {
 			dataInfo.CleanupLastTime = runner.clock.Now()
 			dataInfo.CleanupProcessingDuration = runner.clock.Now().Sub(start)

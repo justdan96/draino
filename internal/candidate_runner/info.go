@@ -24,7 +24,7 @@ type DataInfo struct {
 	lastNodeIterator scheduler.ItemProvider[*v1.Node]
 }
 
-type DataInfoCleanup struct {
+type DataInfoForCleanupActivity struct {
 	// Cleanup data
 	CleanupLastTime           time.Time
 	CleanupProcessingDuration time.Duration
@@ -38,7 +38,7 @@ func (d *DataInfo) Import(i interface{}) error {
 	return json.Unmarshal(b, d)
 }
 
-func (d *DataInfoCleanup) Import(i interface{}) error {
+func (d *DataInfoForCleanupActivity) Import(i interface{}) error {
 	b, err := json.Marshal(i)
 	if err != nil {
 		return err
