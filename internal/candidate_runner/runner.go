@@ -177,9 +177,16 @@ func (runner *candidateRunner) handleRetryFlagOnNodes(ctx context.Context, nodes
 
 	var errors []error
 	for _, node := range nodes {
+		var err error
 		if val, exist := node.Annotations[drainRetryFailedAnnotationKey]; exist && val == drainRetryRestartAnnotationValue {
-			if _, err := runner.retryWall.ResetRetryCount(ctx, node); err != nil {
-				errors = append(errors, fmt.Errorf("cannot reset retry wall on node '%s': %v", node.Name, err))
+			if runner.retryWall.GetDrainRetryAttemptsCount(node) != 0 {
+				node, err = runner.retryWall.ResetRetryCount(ctx, node)
+				if err != nil {
+					errors = append(errors, fmt.Errorf("cannot reset retry wall on node '%s': %v", node.Name, err))
+				}
+			}
+			if errAnnotation := kubernetes.PatchDeleteNodeLabelKeyCR(ctx, runner.client, node, drainRetryFailedAnnotationKey); errAnnotation != nil {
+				errors = append(errors, fmt.Errorf("cannot reset retry wall on node '%s': %v", node.Name, errAnnotation))
 			}
 		}
 	}
