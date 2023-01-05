@@ -156,7 +156,7 @@ func TestPDBAnalyser(t *testing.T) {
 			defer close(ch)
 			wrapper.Start(ch)
 
-			analyser := NewPDBAnalyser(indexer)
+			analyser := NewPDBAnalyser(context.Background(), zapr.NewLogger(zap.NewNop()), indexer)
 			pods, err := analyser.BlockingPodsOnNode(context.Background(), tt.NodeName)
 			assert.NoError(t, err)
 
@@ -202,7 +202,7 @@ func TestPDBAnalyser_IsPDBBlocked(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			res := IsPDBBlocked(context.Background(), tt.Pod, tt.PDB)
+			res := IsPDBBlockedByPod(context.Background(), tt.Pod, tt.PDB)
 			assert.Equal(t, tt.IsBlocked, res)
 		})
 	}
