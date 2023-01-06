@@ -68,6 +68,14 @@ func (a *pdbAnalyserImpl) CompareNode(n1, n2 *corev1.Node) bool {
 	pdbSet1 := idxByPDB(podAndPDBBlocking1)
 	pdbSet2 := idxByPDB(podAndPDBBlocking2)
 
+	if len(pdbSet1) == 0 { // n1 can't be priority compare to 2
+		return false
+	}
+	if len(pdbSet2) == 0 { // n1 has at least one pdb failing and not n2 so n1 is in priority
+		return true
+	}
+
+	// both have affected pdb. Let's take the one with less impact that would have maximum chances to drain
 	if len(pdbSet1) < len(pdbSet2) {
 		return true
 	}
