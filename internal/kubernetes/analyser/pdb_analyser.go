@@ -8,6 +8,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/utils/clock"
 	"time"
 )
 
@@ -15,15 +16,17 @@ var _ PDBAnalyser = &pdbAnalyserImpl{}
 
 // pdbAnalyserImpl is an implementation of the analyser interface
 type pdbAnalyserImpl struct {
-	podIndexer index.PodIndexer
-	pdbIndexer index.PDBIndexer
-	context    context.Context
-	logger     logr.Logger
+	podIndexer              index.PodIndexer
+	pdbIndexer              index.PDBIndexer
+	context                 context.Context
+	logger                  logr.Logger
+	clock                   clock.Clock
+	podWarmupDelayExtension time.Duration
 }
 
 // NewPDBAnalyser creates an instance of the PDB analyzer
-func NewPDBAnalyser(ctx context.Context, logger logr.Logger, indexer *index.Indexer) PDBAnalyser {
-	return &pdbAnalyserImpl{context: ctx, podIndexer: indexer, pdbIndexer: indexer, logger: logger.WithName("PDBAnalyser")}
+func NewPDBAnalyser(ctx context.Context, logger logr.Logger, indexer *index.Indexer, clock clock.Clock, podWarmupDelayExtension time.Duration) PDBAnalyser {
+	return &pdbAnalyserImpl{context: ctx, podIndexer: indexer, pdbIndexer: indexer, logger: logger.WithName("PDBAnalyser"), clock: clock, podWarmupDelayExtension: podWarmupDelayExtension}
 }
 
 // CompareNode return true if the node n1 should be drained in priority compared to node n2
@@ -110,7 +113,7 @@ func (a *pdbAnalyserImpl) removeTransientBlockingStates(b []BlockingPod) []Block
 	result := make([]BlockingPod, 0, len(b))
 	for _, p := range b {
 		if a.isWarmingUpPods(p) {
-			break
+			continue
 		}
 		result = append(result, p)
 	}
@@ -127,7 +130,7 @@ func getMaxRestartCount(p *corev1.Pod) (max int32) {
 	}
 	checkCS(p.Status.EphemeralContainerStatuses)
 	checkCS(p.Status.InitContainerStatuses)
-	checkCS(p.Status.EphemeralContainerStatuses)
+	checkCS(p.Status.ContainerStatuses)
 	return max
 }
 
@@ -137,7 +140,7 @@ func hasImageFailureOrCLBContainer(p *corev1.Pod) bool {
 			if c.State.Waiting != nil {
 				switch c.State.Waiting.Reason {
 				//https://github.com/kubernetes/kubernetes/blob/64af1adaceba4db8d0efdb91453bce7073973771/pkg/kubelet/images/types.go#L27
-				case "ErrImagePullBackOff", "ImageInspectError", "ErrImagePull", "ErrImageNeverPull", "InvalidImageName":
+				case "ErrImagePullBackOff", "ImageInspectError", "ErrImagePull", "ErrImageNeverPull", "InvalidImageName", "RegistryUnavailable":
 					return true
 				// for example the image is Ok, but the binary cannot be found in the image, like typo in the command name
 				case "CrashLoopBackOff":
@@ -147,7 +150,7 @@ func hasImageFailureOrCLBContainer(p *corev1.Pod) bool {
 		}
 		return false
 	}
-	return checkCS(p.Status.EphemeralContainerStatuses) || checkCS(p.Status.InitContainerStatuses) || checkCS(p.Status.EphemeralContainerStatuses)
+	return checkCS(p.Status.ContainerStatuses) || checkCS(p.Status.InitContainerStatuses) || checkCS(p.Status.EphemeralContainerStatuses)
 }
 
 // isWarmingUpPods check if this pod is in a warmup phase (it is being started)
@@ -196,8 +199,7 @@ func (a *pdbAnalyserImpl) isWarmingUpPods(b BlockingPod) bool {
 	// Let's check that all containers have been given enough time to start
 	for _, cs := range pod.Status.ContainerStatuses {
 		if cs.State.Terminated == nil && cs.State.Running != nil {
-			// TODO add clock to analyser
-			if cs.State.Running.StartedAt.Time.Add(containersWarmUpDelay[cs.Name]).Add(30 * time.Second).After(time.Now()) {
+			if cs.State.Running.StartedAt.Time.Add(containersWarmUpDelay[cs.Name]).Add(a.podWarmupDelayExtension).After(a.clock.Now()) {
 				return true
 			}
 		}

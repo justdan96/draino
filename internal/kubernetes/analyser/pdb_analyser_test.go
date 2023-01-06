@@ -2,7 +2,9 @@ package analyser
 
 import (
 	"context"
+	"k8s.io/utils/clock"
 	"testing"
+	"time"
 
 	"github.com/go-logr/zapr"
 	"go.uber.org/zap"
@@ -156,7 +158,7 @@ func TestPDBAnalyser(t *testing.T) {
 			defer close(ch)
 			wrapper.Start(ch)
 
-			analyser := NewPDBAnalyser(context.Background(), zapr.NewLogger(zap.NewNop()), indexer)
+			analyser := NewPDBAnalyser(context.Background(), zapr.NewLogger(zap.NewNop()), indexer, clock.RealClock{}, time.Second)
 			pods, err := analyser.BlockingPodsOnNode(context.Background(), tt.NodeName)
 			assert.NoError(t, err)
 
