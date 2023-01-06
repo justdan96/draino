@@ -3,6 +3,7 @@ package drain
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
@@ -23,6 +24,11 @@ const (
 	PositiveCacheResTTL = time.Minute
 	NegativeCacheResTTL = 3 * time.Minute
 
+	eventDrainSimulationFailed        = "DrainSimulationFailed"
+	eventDrainSimulationSuccessful    = "DrainSimulationSuccessful"
+	eventEvictionSimulationFailed     = "EvictionSimulationFailed"
+	eventEvictionSimulationSuccessful = "EvictionSimulationSuccessful"
+
 	// Starting at v1.22, we should use policy/v1 instead of policy/v1beta1 for evictions
 	// https://kubernetes.io/docs/concepts/scheduling-eviction/api-eviction/#calling-the-eviction-api
 	KubeMinVersionEvictionPolicyV1 = "v1.22.0"
@@ -38,9 +44,10 @@ type DrainSimulator interface {
 }
 
 type drainSimulatorImpl struct {
-	pdbIndexer index.PDBIndexer
-	podIndexer index.PodIndexer
-	client     client.Client
+	pdbIndexer    index.PDBIndexer
+	podIndexer    index.PodIndexer
+	client        client.Client
+	eventRecorder kubernetes.EventRecorder
 	// skipPodFilter will be used to evaluate if pods running on a node should go through the eviction simulation
 	skipPodFilter          kubernetes.PodFilterFunc
 	podResultCache         utils.TTLCache[simulationResult]
@@ -60,6 +67,7 @@ func NewDrainSimulator(
 	indexer *index.Indexer,
 	skipPodFilter kubernetes.PodFilterFunc,
 	kubeVersion *version.Info,
+	eventRecorder kubernetes.EventRecorder,
 ) DrainSimulator {
 	usePolicyV1 := semver.Compare(kubeVersion.String(), KubeMinVersionEvictionPolicyV1) >= 0
 	simulator := &drainSimulatorImpl{
@@ -68,6 +76,7 @@ func NewDrainSimulator(
 		client:                 client,
 		skipPodFilter:          skipPodFilter,
 		usePolicyV1ForEviction: usePolicyV1,
+		eventRecorder:          eventRecorder,
 
 		// TODO think about using alternative solutions like a MRU cache
 		podResultCache: utils.NewTTLCache[simulationResult](3*time.Minute, 10*time.Second),
@@ -96,6 +105,7 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 		}
 	}
 	if len(reasons) > 0 {
+		sim.eventRecorder.NodeEventf(ctx, node, corev1.EventTypeWarning, eventDrainSimulationFailed, "Drain simulation failed: "+strings.Join(reasons, "; "))
 		return false, reasons, nil
 	}
 
@@ -112,9 +122,11 @@ func (sim *drainSimulatorImpl) SimulateDrain(ctx context.Context, node *corev1.N
 
 	// TODO add suceeded/failed node drain simulation count metric
 	if len(reasons) > 0 {
+		sim.eventRecorder.NodeEventf(ctx, node, corev1.EventTypeWarning, eventDrainSimulationFailed, "Drain simulation failed: "+strings.Join(reasons, "; "))
 		return false, reasons, nil
 	}
 
+	sim.eventRecorder.NodeEventf(ctx, node, corev1.EventTypeNormal, eventDrainSimulationSuccessful, "Drain simulation was successful")
 	return true, nil, nil
 }
 
@@ -123,6 +135,7 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 	defer span.Finish()
 
 	if res, exist := sim.podResultCache.Get(createCacheKey(pod), time.Now()); exist {
+		// TODO should we republish the event?
 		return res.result, res.reason, nil
 	}
 
@@ -144,8 +157,9 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 	// If there is more than one PDB associated to the given pod, the eviction will fail for sure due to the APIServer behaviour.
 	podKey := index.GeneratePodIndexKey(pod.GetName(), pod.GetNamespace())
 	if len(pdbs[podKey]) > 1 {
-		reason = fmt.Sprintf("Pod has more than one associated PDB %d > 1", len(pdbs[podKey]))
+		reason = fmt.Sprintf("Pod has more than one associated PDB: %s", strings.Join(utils.GetPDBNames(pdbs[podKey]), ";"))
 		sim.writePodCache(pod, false, reason)
+		sim.eventRecorder.PodEventf(ctx, pod, corev1.EventTypeWarning, eventEvictionSimulationFailed, reason)
 		return false, reason, nil
 	}
 
@@ -155,6 +169,7 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 		if analyser.IsPDBBlocked(ctx, pod, pdb) {
 			reason = fmt.Sprintf("PDB '%s' does not allow any disruptions", pdb.GetName())
 			sim.writePodCache(pod, false, reason)
+			sim.eventRecorder.PodEventf(ctx, pod, corev1.EventTypeWarning, eventEvictionSimulationFailed, reason)
 			return false, reason, nil
 		}
 	}
@@ -164,9 +179,12 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 	if !evictionDryRunRes {
 		reason = fmt.Sprintf("Eviction dry run was not successful: %v", err)
 		sim.writePodCache(pod, false, reason)
+		sim.eventRecorder.PodEventf(ctx, pod, corev1.EventTypeWarning, eventEvictionSimulationFailed, reason)
 		return false, reason, nil
 	}
+
 	sim.writePodCache(pod, true, "")
+	sim.eventRecorder.PodEventf(ctx, pod, corev1.EventTypeWarning, eventEvictionSimulationSuccessful, "Pod could be evicted")
 	return true, "", nil
 }
 
