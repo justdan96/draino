@@ -36,6 +36,7 @@ func (factory *DrainRunnerFactory) build() *drainRunner {
 		eventRecorder:       factory.conf.eventRecorder,
 		filter:              factory.conf.filter,
 		drainBuffer:         factory.conf.drainBuffer,
+		rateLimiter:         factory.conf.rateLimiter,
 
 		preprocessors: factory.conf.preprocessors,
 	}

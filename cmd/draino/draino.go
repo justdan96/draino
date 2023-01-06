@@ -48,6 +48,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	drainoklog "github.com/planetlabs/draino/internal/kubernetes/klog"
+	"github.com/planetlabs/draino/internal/limit"
 	"github.com/planetlabs/draino/internal/observability"
 	protector "github.com/planetlabs/draino/internal/protector"
 
@@ -535,6 +536,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		drain_runner.WithEventRecorder(eventRecorder),
 		drain_runner.WithFilter(filterFactory.BuildCandidateFilter()),
 		drain_runner.WithDrainBuffer(drainBuffer),
+		drain_runner.WithRateLimiter(limit.NewRateLimiter(&clock.RealClock{}, options.drainRateLimitQPS, options.drainRateLimitBurst)),
 	)
 	if err != nil {
 		logger.Error(err, "failed to configure the drain_runner")

@@ -2,8 +2,10 @@ package drain_runner
 
 import (
 	"errors"
-	"github.com/planetlabs/draino/internal/candidate_runner/filters"
 	"time"
+
+	"github.com/planetlabs/draino/internal/candidate_runner/filters"
+	"github.com/planetlabs/draino/internal/limit"
 
 	"github.com/go-logr/logr"
 	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
@@ -28,6 +30,7 @@ type Config struct {
 	eventRecorder       kubernetes.EventRecorder
 	filter              filters.Filter
 	drainBuffer         drainbuffer.DrainBuffer
+	rateLimiter         limit.RateLimiter
 
 	// With defaults
 	clock         clock.Clock
@@ -69,6 +72,9 @@ func (conf *Config) Validate() error {
 	}
 	if conf.drainBuffer == nil {
 		return errors.New("drain buffer should be set")
+	}
+	if conf.rateLimiter == nil {
+		return errors.New("rate limiter should be set")
 	}
 
 	return nil
@@ -137,5 +143,11 @@ func WithFilter(f filters.Filter) WithOption {
 func WithDrainBuffer(buffer drainbuffer.DrainBuffer) WithOption {
 	return func(conf *Config) {
 		conf.drainBuffer = buffer
+	}
+}
+
+func WithRateLimiter(limiter limit.RateLimiter) WithOption {
+	return func(conf *Config) {
+		conf.rateLimiter = limiter
 	}
 }

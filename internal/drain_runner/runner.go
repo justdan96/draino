@@ -20,6 +20,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
+	"github.com/planetlabs/draino/internal/limit"
 )
 
 // DrainTimeout how long is it acceptable for a drain to run
@@ -41,6 +42,7 @@ type drainRunner struct {
 	eventRecorder       kubernetes.EventRecorder
 	filter              filters.Filter
 	drainBuffer         drainbuffer.DrainBuffer
+	rateLimiter         limit.RateLimiter
 
 	preprocessors []DrainPreProzessor
 }
@@ -152,6 +154,15 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 		loggerForNode.Info("Removing candidate status", "reason", reason, "filterName", filterName)
 		_, errRmTaint := k8sclient.RemoveNLATaint(ctx, runner.client, candidate)
 		return errRmTaint
+	}
+
+	// The rate limiter is executed after the filtering layer, so that we can react on changes in the system that might appear during the wait time.
+	// We are using the Wait function to decrease the CPU consumtion during high traffic times.
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := runner.rateLimiter.Wait(waitCtx); err != nil {
+		loggerForNode.Info("Cannot get token from rate limiter")
+		return nil
 	}
 
 	// Checking pre-activities

@@ -3,8 +3,9 @@ package drain_runner
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/kubernetes/fake"
 	"time"
+
+	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/candidate_runner/filters"
@@ -13,6 +14,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
+	"github.com/planetlabs/draino/internal/limit"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/utils/clock"
 )
@@ -26,6 +28,7 @@ type FakeOptions struct {
 	RerunEvery    time.Duration
 	Filter        filters.Filter
 	DrainBuffer   drainbuffer.DrainBuffer
+	RateLimiter   limit.RateLimiter
 
 	Clock clock.Clock
 
@@ -69,6 +72,9 @@ func (opts *FakeOptions) ApplyDefaults() error {
 		persistor := drainbuffer.NewConfigMapPersistor(configMapClient, "fake-buffer", "default")
 		opts.DrainBuffer = drainbuffer.NewDrainBuffer(context.Background(), persistor, opts.Clock, *opts.Logger)
 	}
+	if opts.RateLimiter == nil {
+		opts.RateLimiter = limit.NewRateLimiter(opts.Clock, 10, 10)
+	}
 	return nil
 }
 
@@ -109,5 +115,6 @@ func NewFakeRunner(opts *FakeOptions) (*drainRunner, error) {
 		eventRecorder:       &kubernetes.NoopEventRecorder{},
 		filter:              opts.Filter,
 		drainBuffer:         opts.DrainBuffer,
+		rateLimiter:         opts.RateLimiter,
 	}, nil
 }
