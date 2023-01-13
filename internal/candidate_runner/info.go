@@ -15,11 +15,15 @@ const (
 
 type DataInfo struct {
 	// Candidate Run
-	NodeCount          int
-	FilteredOutCount   int
-	Slots              string
-	ProcessingDuration time.Duration
-	LastTime           time.Time
+	NodeCount            int
+	FilteredOutCount     int
+	Slots                string
+	ProcessingDuration   time.Duration
+	LastRunTime          time.Time
+	LastNodeIteratorTime time.Time
+	LastCandidates       []string
+	LastCandidatesTime   time.Time
+
 	// private filed that should not go through the serialization
 	lastNodeIterator scheduler.ItemProvider[*v1.Node]
 }
@@ -56,10 +60,18 @@ type CandidateRunnerInfo interface {
 	GetLastNodeIteratorGraph(url bool) string
 }
 
-func (d DataInfo) GetLastNodeIteratorGraph(url bool) string {
+func (d *DataInfo) GetLastNodeIteratorGraph(url bool) string {
 	if d.lastNodeIterator == nil {
-		return ""
+		return "no last graph"
 	}
 	g := d.lastNodeIterator.(scheduler.SortingTree[*v1.Node])
 	return g.AsDotGraph(url, func(n *v1.Node) string { return n.GetName() })
+}
+
+func (d *DataInfo) importLongLastingData(info DataInfo) {
+	d.lastNodeIterator = info.lastNodeIterator
+
+	d.LastNodeIteratorTime = info.LastNodeIteratorTime
+	d.LastCandidates = info.LastCandidates
+	d.LastCandidatesTime = info.LastCandidatesTime
 }
