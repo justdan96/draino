@@ -506,7 +506,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		return err
 	}
 
-	keyGetter := groups.NewGroupKeyFromNodeMetadata(strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
+	keyGetter := groups.NewGroupKeyFromNodeMetadata(eventRecorder, indexer, store, strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
 
 	filterFactory, err := filters.NewFactory(
 		filters.WithLogger(mgr.GetLogger()),
