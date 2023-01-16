@@ -15,17 +15,17 @@ const (
 
 type DataInfo struct {
 	// Candidate Run
-	NodeCount            int
-	FilteredOutCount     int
-	Slots                string
-	ProcessingDuration   time.Duration
-	LastRunTime          time.Time
-	LastNodeIteratorTime time.Time
-	LastCandidates       []string
-	LastCandidatesTime   time.Time
+	NodeCount            int           // initial node count in the group
+	FilteredOutCount     int           // How many nodes were filtered out
+	Slots                string        // "RemainingSlot/MaxSlot"
+	ProcessingDuration   time.Duration // How long does the loop took to run entirely
+	LastRunTime          time.Time     // When was the runner loop launched the last time
+	LastNodeIteratorTime time.Time     // When did the loop had to node to iterate on AFTER the filtering part
+	LastCandidates       []string      // Last candidate(s) that were tainted
+	LastCandidatesTime   time.Time     // When was the last candidate(s) tainted
 
 	// private filed that should not go through the serialization
-	lastNodeIterator scheduler.ItemProvider[*v1.Node]
+	lastNodeIterator scheduler.ItemProvider[*v1.Node] // Pointer to the last SortingTreeRepresentation as it was left by the last run.
 }
 
 type DataInfoForCleanupActivity struct {

@@ -162,7 +162,7 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 				break
 			}
 		}
-		if candidatesName != nil {
+		if len(candidatesName) > 0 {
 			dataInfo.LastCandidates = candidatesName
 			dataInfo.LastCandidatesTime = runner.clock.Now()
 		}
