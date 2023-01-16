@@ -136,7 +136,7 @@ func TestDrainRunner(t *testing.T) {
 				Objects: []runtime.Object{tt.Node},
 				Indexes: []k8sclient.WithIndex{
 					func(_ client.Client, cache cachecr.Cache) error {
-						return groups.InitSchedulingGroupIndexer(cache, groups.NewGroupKeyFromNodeMetadata([]string{"key"}, nil, ""))
+						return groups.InitSchedulingGroupIndexer(cache, groups.NewGroupKeyFromNodeMetadata(kubernetes.NoopEventRecorder{}, nil, nil, []string{"key"}, nil, ""))
 					},
 				},
 			})

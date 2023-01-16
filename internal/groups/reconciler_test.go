@@ -2,6 +2,7 @@ package groups
 
 import (
 	"context"
+	"github.com/planetlabs/draino/internal/kubernetes"
 	"sync"
 	"testing"
 	"time"
@@ -64,7 +65,7 @@ func TestNewGroupRegistry(t *testing.T) {
 			name:                  "test1",
 			drainFactory:          NewTestRunnerFactory(),
 			drainCandidateFactory: NewTestRunnerFactory(),
-			keyGetter:             NewGroupKeyFromNodeMetadata([]string{"key"}, nil, ""),
+			keyGetter:             NewGroupKeyFromNodeMetadata(kubernetes.NoopEventRecorder{}, nil, nil, []string{"key"}, nil, ""),
 			runCount: map[GroupKey]int{
 				"g1": 1,
 				"g2": 1,
