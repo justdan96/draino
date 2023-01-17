@@ -7,6 +7,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
 )
 
@@ -14,10 +15,12 @@ type GroupKey string
 
 type GroupKeyGetter interface {
 	GetGroupKey(node *v1.Node) GroupKey
+	CheckGroupOverride(node *v1.Node) error
 	ValidateGroupKey(node *v1.Node) (valid bool, reason string)
 }
 
 type GroupKeyFromMetadata struct {
+	kclient                    client.Client
 	labelsKeys                 []string
 	annotationKeys             []string
 	groupOverrideAnnotationKey string
@@ -29,8 +32,9 @@ type GroupKeyFromMetadata struct {
 
 var _ GroupKeyGetter = &GroupKeyFromMetadata{}
 
-func NewGroupKeyFromNodeMetadata(logger logr.Logger, eventRecorder kubernetes.EventRecorder, podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, labelsKeys, annotationKeys []string, groupOverrideAnnotationKey string) GroupKeyGetter {
+func NewGroupKeyFromNodeMetadata(client client.Client, logger logr.Logger, eventRecorder kubernetes.EventRecorder, podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, labelsKeys, annotationKeys []string, groupOverrideAnnotationKey string) GroupKeyGetter {
 	return &GroupKeyFromMetadata{
+		kclient:                    client,
 		labelsKeys:                 labelsKeys,
 		annotationKeys:             annotationKeys,
 		groupOverrideAnnotationKey: groupOverrideAnnotationKey,
@@ -64,6 +68,37 @@ func (g *GroupKeyFromMetadata) ValidateGroupKey(node *v1.Node) (valid bool, reas
 	}
 	return true, ""
 }
+func (g *GroupKeyFromMetadata) getGroupOverrideFromNodeAnnotation(node *v1.Node) (GroupKey, bool) {
+	return g.getGroupOverrideAnnotation(node, "")
+}
+
+func (g *GroupKeyFromMetadata) getGroupOverrideFromPodAnnotation(node *v1.Node) (GroupKey, bool) {
+	return g.getGroupOverrideAnnotation(node, "-pod")
+}
+
+func (g *GroupKeyFromMetadata) getGroupOverrideAnnotation(node *v1.Node, annotationSuffix string) (GroupKey, bool) {
+	if g.groupOverrideAnnotationKey != "" && node.Annotations != nil {
+		if override, ok := node.Annotations[g.groupOverrideAnnotationKey+annotationSuffix]; ok && override != "" {
+			values := strings.Split(override, ",")
+			return GroupKey(strings.Join(values, GroupKeySeparator)), true
+		}
+	}
+	return "", false
+}
+
+func (g *GroupKeyFromMetadata) CheckGroupOverride(node *v1.Node) error {
+	podOverrideValue, podOverride := g.getGroupOverrideFromPods(node)
+	podAnnotationOverrideValue, podAnnotationOverride := g.getGroupOverrideFromPodAnnotation(node)
+
+	if podOverrideValue == podAnnotationOverrideValue && podOverride == podAnnotationOverride {
+		return nil
+	}
+
+	if !podOverride && podAnnotationOverride {
+		return kubernetes.PatchDeleteNodeAnnotationKeyCR(context.Background(), g.kclient, node, g.groupOverrideAnnotationKey+"-pod")
+	}
+	return kubernetes.PatchNodeAnnotationKeyCR(context.Background(), g.kclient, node, g.groupOverrideAnnotationKey+"-pod", string(podOverrideValue))
+}
 
 func (g *GroupKeyFromMetadata) GetGroupKey(node *v1.Node) GroupKey {
 	// slice that contains the values that will compose the groupKey
@@ -71,25 +106,26 @@ func (g *GroupKeyFromMetadata) GetGroupKey(node *v1.Node) GroupKey {
 
 	// let's tackle the simple case where the user completely override the groupkey
 	// node override takes over pods override. In other words if node override exists any pods value would be ignored
-	if g.groupOverrideAnnotationKey != "" && node.Annotations != nil {
-		if override, ok := node.Annotations[g.groupOverrideAnnotationKey]; ok && override != "" {
-			// in that case we completely replace the groups, we remove the default groups.
-			// for example, this allows users to define a kubernetes-cluster wide groups if the default is set to namespace
-			values = strings.Split(override, ",")
-			return GroupKey(strings.Join(values, GroupKeySeparator))
-		}
-		// if the override value is not set, we fallback to the default case with no override
+	if override, ok := g.getGroupOverrideFromNodeAnnotation(node); ok {
+		// in that case we completely replace the groups, we remove the default groups.
+		// for example, this allows users to define a kubernetes-cluster wide groups if the default is set to namespace
+		return override
 	}
+
+	// Do we have an override that was delivered by pods
+	if override, ok := g.getGroupOverrideFromPodAnnotation(node); ok {
+		// in that case we completely replace the groups, we remove the default groups.
+		// for example, this allows users to define a kubernetes-cluster wide groups if the default is set to namespace
+		return override
+	}
+
 	// let's build the groups values from labels and annotations
 	values = append(getValueOrEmpty(node.Labels, g.labelsKeys), getValueOrEmpty(node.Annotations, g.annotationKeys)...)
 
-	if podOverride, hasPodOverride := g.getGroupKeyFromPods(node); hasPodOverride {
-		values = []string{string(podOverride)}
-	}
 	return GroupKey(strings.Join(values, GroupKeySeparator))
 }
 
-func (g *GroupKeyFromMetadata) getGroupKeyFromPods(node *v1.Node) (GroupKey, bool) {
+func (g *GroupKeyFromMetadata) getGroupOverrideFromPods(node *v1.Node) (GroupKey, bool) {
 	if g.podIndexer == nil || g.store == nil {
 		g.logger.Error(fmt.Errorf("no podIndexer or Store defined for the GroupKeyFromMetadata"), "Skipping getGroupKeyFromPods")
 		// While it should not happen at runtime, this is important for testing. There are some tests where we cannot mix indexer and client from kubernetes.ClienSet and ControllerRuntime.Client

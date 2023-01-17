@@ -20,7 +20,6 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 		name                       string
 		labelsKeys                 []string
 		annotationKeys             []string
-		objects                    []runtime.Object
 		groupOverrideAnnotationKey string
 		node                       *v1.Node
 		want                       GroupKey
@@ -81,18 +80,7 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 				ObjectMeta: meta.ObjectMeta{
 					Name:        "the-node",
 					Labels:      nil,
-					Annotations: nil,
-				},
-			},
-			objects: []runtime.Object{
-				&v1.Pod{
-					ObjectMeta: meta.ObjectMeta{
-						Name:        "pod1",
-						Annotations: map[string]string{"A3": "a3", "ZZZ": "zzz,xxx"},
-					},
-					Spec: v1.PodSpec{
-						NodeName: "the-node",
-					},
+					Annotations: map[string]string{"AAA": "aaa", "A0": "a0", "A1": "a1", "A2": "a2", "A3": "a3", "ZZZ-pod": "zzz,xxx"},
 				},
 			},
 			want: GroupKey("zzz#xxx"),
@@ -101,10 +89,10 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 	testLogger := zapr.NewLogger(zap.NewNop())
 	for _, tt := range tests {
 		func() { // to better handler defer statements
-			wrapper, err := k8sclient.NewFakeClient(k8sclient.FakeConf{Objects: tt.objects})
+			wrapper, err := k8sclient.NewFakeClient(k8sclient.FakeConf{})
 			assert.NoError(t, err)
 
-			fakeKubeClient := fakeclient.NewSimpleClientset(tt.objects...)
+			fakeKubeClient := fakeclient.NewSimpleClientset()
 			store, closeFunc := kubernetes.RunStoreForTest(context.Background(), fakeKubeClient)
 			defer closeFunc()
 
@@ -120,7 +108,7 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 			}
 
 			t.Run(tt.name, func(t *testing.T) {
-				g := NewGroupKeyFromNodeMetadata(testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, tt.labelsKeys, tt.annotationKeys, tt.groupOverrideAnnotationKey)
+				g := NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, tt.labelsKeys, tt.annotationKeys, tt.groupOverrideAnnotationKey)
 				if got := g.GetGroupKey(tt.node); got != tt.want {
 					t.Errorf("GetGroupKey() = %v, want %v", got, tt.want)
 				}
@@ -298,8 +286,8 @@ func TestGroupKeyFromMetadata_GetGroupKeyFromPods(t *testing.T) {
 		}
 
 		t.Run(tt.name, func(t *testing.T) {
-			g := NewGroupKeyFromNodeMetadata(testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, nil, nil, tt.groupOverrideAnnotationKey).(*GroupKeyFromMetadata)
-			gotValue, override := g.getGroupKeyFromPods(tt.node)
+			g := NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, nil, nil, tt.groupOverrideAnnotationKey).(*GroupKeyFromMetadata)
+			gotValue, override := g.getGroupOverrideFromPods(tt.node)
 			assert.Equalf(t, tt.want, gotValue, "groupKey value")
 			assert.Equalf(t, tt.override, override, "Override")
 		})
