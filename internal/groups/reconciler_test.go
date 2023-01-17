@@ -66,7 +66,7 @@ func TestNewGroupRegistry(t *testing.T) {
 			name:                  "test1",
 			drainFactory:          NewTestRunnerFactory(),
 			drainCandidateFactory: NewTestRunnerFactory(),
-			keyGetter:             NewGroupKeyFromNodeMetadata(testLogger, kubernetes.NoopEventRecorder{}, nil, nil, []string{"key"}, nil, ""),
+			keyGetter:             NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, nil, nil, []string{"key"}, nil, ""),
 			runCount: map[GroupKey]int{
 				"g1": 1,
 				"g2": 1,
