@@ -100,31 +100,32 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 	}
 	testLogger := zapr.NewLogger(zap.NewNop())
 	for _, tt := range tests {
+		func() { // to better handler defer statements
+			wrapper, err := k8sclient.NewFakeClient(k8sclient.FakeConf{Objects: tt.objects})
+			assert.NoError(t, err)
 
-		wrapper, err := k8sclient.NewFakeClient(k8sclient.FakeConf{Objects: tt.objects})
-		assert.NoError(t, err)
+			fakeKubeClient := fakeclient.NewSimpleClientset(tt.objects...)
+			store, closeFunc := kubernetes.RunStoreForTest(context.Background(), fakeKubeClient)
+			defer closeFunc()
 
-		fakeKubeClient := fakeclient.NewSimpleClientset(tt.objects...)
-		store, closeFunc := kubernetes.RunStoreForTest(context.Background(), fakeKubeClient)
-		defer closeFunc()
+			fakeIndexer, err := index.New(wrapper.GetManagerClient(), wrapper.GetCache(), testLogger)
+			assert.NoError(t, err)
 
-		fakeIndexer, err := index.New(wrapper.GetManagerClient(), wrapper.GetCache(), testLogger)
-		assert.NoError(t, err)
+			ch := make(chan struct{})
+			defer close(ch)
+			wrapper.Start(ch)
 
-		ch := make(chan struct{})
-		defer close(ch)
-		wrapper.Start(ch)
-
-		if err != nil {
-			t.Fatalf("can't create fakeIndexer: %#v", err)
-		}
-
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewGroupKeyFromNodeMetadata(kubernetes.NoopEventRecorder{}, fakeIndexer, store, tt.labelsKeys, tt.annotationKeys, tt.groupOverrideAnnotationKey)
-			if got := g.GetGroupKey(tt.node); got != tt.want {
-				t.Errorf("GetGroupKey() = %v, want %v", got, tt.want)
+			if err != nil {
+				t.Fatalf("can't create fakeIndexer: %#v", err)
 			}
-		})
+
+			t.Run(tt.name, func(t *testing.T) {
+				g := NewGroupKeyFromNodeMetadata(testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, tt.labelsKeys, tt.annotationKeys, tt.groupOverrideAnnotationKey)
+				if got := g.GetGroupKey(tt.node); got != tt.want {
+					t.Errorf("GetGroupKey() = %v, want %v", got, tt.want)
+				}
+			})
+		}()
 	}
 }
 
@@ -297,7 +298,7 @@ func TestGroupKeyFromMetadata_GetGroupKeyFromPods(t *testing.T) {
 		}
 
 		t.Run(tt.name, func(t *testing.T) {
-			g := NewGroupKeyFromNodeMetadata(kubernetes.NoopEventRecorder{}, fakeIndexer, store, nil, nil, tt.groupOverrideAnnotationKey).(*GroupKeyFromMetadata)
+			g := NewGroupKeyFromNodeMetadata(testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, nil, nil, tt.groupOverrideAnnotationKey).(*GroupKeyFromMetadata)
 			gotValue, override := g.getGroupKeyFromPods(tt.node)
 			assert.Equalf(t, tt.want, gotValue, "groupKey value")
 			assert.Equalf(t, tt.override, override, "Override")

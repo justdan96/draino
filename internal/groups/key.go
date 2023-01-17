@@ -2,6 +2,8 @@ package groups
 
 import (
 	"context"
+	"fmt"
+	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	v1 "k8s.io/api/core/v1"
@@ -22,11 +24,12 @@ type GroupKeyFromMetadata struct {
 	podIndexer                 index.PodIndexer
 	store                      kubernetes.RuntimeObjectStore
 	eventRecorder              kubernetes.EventRecorder
+	logger                     logr.Logger
 }
 
 var _ GroupKeyGetter = &GroupKeyFromMetadata{}
 
-func NewGroupKeyFromNodeMetadata(eventRecorder kubernetes.EventRecorder, podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, labelsKeys, annotationKeys []string, groupOverrideAnnotationKey string) GroupKeyGetter {
+func NewGroupKeyFromNodeMetadata(logger logr.Logger, eventRecorder kubernetes.EventRecorder, podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, labelsKeys, annotationKeys []string, groupOverrideAnnotationKey string) GroupKeyGetter {
 	return &GroupKeyFromMetadata{
 		labelsKeys:                 labelsKeys,
 		annotationKeys:             annotationKeys,
@@ -34,6 +37,7 @@ func NewGroupKeyFromNodeMetadata(eventRecorder kubernetes.EventRecorder, podInde
 		podIndexer:                 podIndexer,
 		store:                      store,
 		eventRecorder:              eventRecorder,
+		logger:                     logger.WithName("GroupKeyGetter"),
 	}
 }
 
@@ -80,13 +84,14 @@ func (g *GroupKeyFromMetadata) GetGroupKey(node *v1.Node) GroupKey {
 	values = append(getValueOrEmpty(node.Labels, g.labelsKeys), getValueOrEmpty(node.Annotations, g.annotationKeys)...)
 
 	if podOverride, hasPodOverride := g.getGroupKeyFromPods(node); hasPodOverride {
-		return podOverride
+		values = []string{string(podOverride)}
 	}
 	return GroupKey(strings.Join(values, GroupKeySeparator))
 }
 
 func (g *GroupKeyFromMetadata) getGroupKeyFromPods(node *v1.Node) (GroupKey, bool) {
 	if g.podIndexer == nil || g.store == nil {
+		g.logger.Error(fmt.Errorf("no podIndexer or Store defined for the GroupKeyFromMetadata"), "Skipping getGroupKeyFromPods")
 		// While it should not happen at runtime, this is important for testing. There are some tests where we cannot mix indexer and client from kubernetes.ClienSet and ControllerRuntime.Client
 		return "", false
 	}
@@ -95,7 +100,7 @@ func (g *GroupKeyFromMetadata) getGroupKeyFromPods(node *v1.Node) (GroupKey, boo
 	if err != nil {
 		// in case of error we ignore pod nodeValues.
 		// they might be taken into account next time the node is presented
-		g.eventRecorder.NodeEventf(context.Background(), node, v1.EventTypeWarning, eventGroupOverrideMisconfiguration, "can't read pods: "+err.Error())
+		g.logger.Error(err, "failed to list pod for node", "node", node.Name)
 		return "", false
 	}
 
@@ -109,7 +114,7 @@ func (g *GroupKeyFromMetadata) getGroupKeyFromPods(node *v1.Node) (GroupKey, boo
 				firstPodId = podId
 			}
 			if podOverride != uniquePodOverride {
-				// With have multiple pod overrides. This is not supported. Pod overrides should be unique, user should check pod anti-affinity to ensure that this constrain is respected
+				// With have multiple pod overrides. This is not supported. Pod overrides should be unique, user should check pod anti-affinity to ensure that this constraint is respected
 				g.eventRecorder.NodeEventf(context.Background(), node, v1.EventTypeWarning, eventGroupOverrideMisconfiguration, "multiple pod overrides: "+firstPodId+" and "+podId)
 				return "", false
 			}
