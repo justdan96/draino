@@ -21,12 +21,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/DataDog/compute-go/logs"
+	"github.com/go-logr/logr"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/go-logr/logr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/oklog/run"
 	"go.opencensus.io/stats"
@@ -417,6 +418,184 @@ func GetAnnotationFromPodOrController(annotationKey string, pod *core.Pod, store
 	return "", false
 }
 
+type AnnotationSearchResultOnPod[T comparable] struct {
+	Pod          *core.Pod `json:"-"`
+	PodId        string    `json:"pod,omitempty"`
+	Value        T         `json:"value"`
+	errorConv    error     // this is private because it can and shouldn't be serialized for diagnostics
+	ErrorConvStr string    `json:"errorConversion,omitempty"`
+	OnController bool      `json:"onController,omitempty"`
+}
+type AnnotationSearchResult[T comparable] struct {
+	Value        T                                           `json:"value"`
+	Found        bool                                        `json:"found"`
+	errorConv    error                                       // this is private because it can and shouldn't be serialized for diagnostics
+	ErrorConvStr string                                      `json:"errorConversion,omitempty"`
+	Node         *core.Node                                  `json:"-"`
+	PodResults   map[string][]AnnotationSearchResultOnPod[T] `json:"pods,omitempty"`
+}
+
+type SerializationAliasAnnotationSearchResultOnPod[T comparable] AnnotationSearchResultOnPod[T]
+type SerializationAliasAnnotationSearchResult[T comparable] AnnotationSearchResult[T]
+
+func (a *AnnotationSearchResultOnPod[T]) MarshalJSON() ([]byte, error) {
+	if a.errorConv != nil {
+		a.ErrorConvStr = a.errorConv.Error()
+	}
+	if a.Pod != nil {
+		a.PodId = a.Pod.Namespace + "/" + a.Pod.Name
+	}
+	return json.Marshal(SerializationAliasAnnotationSearchResultOnPod[T](*a))
+}
+func (a *AnnotationSearchResult[T]) MarshalJSON() ([]byte, error) {
+	if a.errorConv != nil {
+		a.ErrorConvStr = a.errorConv.Error()
+	}
+	return json.Marshal(SerializationAliasAnnotationSearchResult[T](*a))
+}
+func (a *AnnotationSearchResult[T]) addPodResult(k string, r AnnotationSearchResultOnPod[T]) {
+	if a.PodResults == nil {
+		a.PodResults = map[string][]AnnotationSearchResultOnPod[T]{}
+	}
+	a.PodResults[k] = append(a.PodResults[k], r)
+}
+
+func (a *AnnotationSearchResult[T]) AsSlice() (out []T) {
+	if !a.Found {
+		return nil
+	}
+	if a.Node != nil {
+		out = append(out, a.Value)
+	}
+	for _, v := range a.PodResults {
+		if a.Node != nil { // check that it is not a dupe with node value if any
+			if v[0].Value == a.Value {
+				continue
+			}
+		}
+		out = append(out, v[0].Value)
+	}
+	return
+}
+
+func (a *AnnotationSearchResult[T]) IsValueUnique() bool {
+	if !a.Found {
+		return false
+	}
+	if len(a.PodResults) > 1 {
+		return false
+	}
+	if len(a.PodResults) == 0 {
+		return true
+	}
+	for _, v := range a.PodResults {
+		if len(v) > 0 && a.Value != v[0].Value {
+			return false
+		}
+	}
+	return true
+}
+
+// PruneErrors return a new search result with all errors removed. If handler functions for error are provided, they are called for each error that is pruned
+// The boolean that is return is true is No error was found and pruned.
+// The receiver is not modified.
+func (a *AnnotationSearchResult[T]) PruneErrors(nodeErrFunc func(node *core.Node, err error), podErrFunc func(pod *core.Pod, err error)) (AnnotationSearchResult[T], bool) {
+	noError := true
+	result := AnnotationSearchResult[T]{
+		Found: a.Found,
+	}
+	if a.errorConv != nil {
+		noError = false
+		if nodeErrFunc != nil && a.Node != nil {
+			nodeErrFunc(a.Node, a.errorConv)
+		}
+	} else {
+		result.Found = true
+		result.Node = a.Node
+		result.Value = a.Value
+	}
+
+	if a.PodResults == nil {
+		return result, noError
+	}
+	result.PodResults = map[string][]AnnotationSearchResultOnPod[T]{}
+	for k, pr := range result.PodResults {
+		for _, v := range pr {
+			if v.errorConv != nil {
+				noError = false
+				if podErrFunc != nil && v.Pod != nil {
+					podErrFunc(v.Pod, v.errorConv)
+				}
+			} else {
+				result.Found = true
+				result.PodResults[k] = append(result.PodResults[k], v)
+			}
+		}
+
+	}
+	if len(result.PodResults) == 0 {
+		result.PodResults = nil
+	}
+	return result, noError
+}
+
+func GetAnnotationFromNodeAndThenPodOrController[T comparable](ctx context.Context, podIndexer index.PodIndexer, store RuntimeObjectStore, converter func(string) (T, error), annotationKey string, node *core.Node, stopIfFoundOnNode, stopIfFoundOnPod bool) (AnnotationSearchResult[T], error) {
+	var result AnnotationSearchResult[T]
+	if node.Annotations != nil {
+		if valueStr, ok := node.Annotations[annotationKey]; ok {
+			result.Value, result.errorConv = converter(valueStr)
+			result.Found = (result.errorConv == nil)
+			if stopIfFoundOnNode {
+				return result, nil
+			}
+		}
+	}
+	if podIndexer == nil {
+		return result, nil
+	}
+
+	pods, err := podIndexer.GetPodsByNode(ctx, node.Name)
+	if err != nil {
+		return result, err
+	}
+	for i := range pods {
+		pod := pods[i]
+		// Check directly on the pod and return if any value
+		if pod.Annotations != nil {
+			if valueStr, ok := pod.Annotations[annotationKey]; ok {
+				ar := AnnotationSearchResultOnPod[T]{
+					Pod: pod,
+				}
+				ar.Value, ar.errorConv = converter(valueStr)
+				result.addPodResult(valueStr, ar)
+				if ar.errorConv == nil {
+					result.Found = true
+				}
+				if stopIfFoundOnPod {
+					continue // we won't explore the controller
+				}
+			}
+		}
+
+		if ctrl, found := GetControllerForPod(pod, store); found {
+			if valueStr, ok := ctrl.GetAnnotations()[annotationKey]; ok {
+				ar := AnnotationSearchResultOnPod[T]{
+					Pod:          pod,
+					OnController: true,
+				}
+				ar.Value, ar.errorConv = converter(valueStr)
+				result.addPodResult(valueStr, ar)
+				if ar.errorConv == nil {
+					result.Found = true
+				}
+
+				continue
+			}
+		}
+	}
+	return result, nil
+}
+
 // GetControllerForPod for the moment it handles only statefulSets and deployments controller
 func GetControllerForPod(pod *core.Pod, store RuntimeObjectStore) (ctrl metav1.Object, found bool) {
 	for _, r := range pod.OwnerReferences {
@@ -487,5 +666,7 @@ func LogForVerboseNode(logger *zap.Logger, node *core.Node, msg string, fields .
 func LogrForVerboseNode(logger logr.Logger, node *core.Node, msg string, fields ...interface{}) {
 	if node.Annotations["draino/logs"] == "verbose" {
 		logger.Info(msg, append(fields, "node", node.Name))
+	} else {
+		logger.V(logs.ZapDebug).Info(msg, append(fields, "node", node.Name))
 	}
 }

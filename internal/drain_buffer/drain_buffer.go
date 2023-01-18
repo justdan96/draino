@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/DataDog/compute-go/logs"
+	"github.com/planetlabs/draino/internal/kubernetes"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
+	v1 "k8s.io/api/core/v1"
 	"sync"
 	"time"
 
@@ -26,7 +30,13 @@ type DrainBuffer interface {
 	Initialize(context.Context) error
 	// IsReady returns true if the initialization was finished successfully
 	IsReady() bool
+	// GetDrainBufferConfiguration retrieve the drain buffer configuration with a node (and associated pods)
+	GetDrainBufferConfiguration(ctx context.Context, node *v1.Node) (time.Duration, error)
+	// GetDrainBufferConfigurationDetails retrieve the drain buffer configuration with a node (and associated pods)
+	GetDrainBufferConfigurationDetails(ctx context.Context, node *v1.Node) (kubernetes.AnnotationSearchResult[time.Duration], error)
 }
+
+var _ DrainBuffer = &drainBufferImpl{}
 
 // drainCache is cache used internally by the drain buffer
 type drainCache map[groups.GroupKey]drainCacheEntry
@@ -43,21 +53,72 @@ type drainBufferImpl struct {
 	isInitialized bool
 	isDirty       bool
 
-	clock     clock.Clock
-	persistor Persistor
-	cache     drainCache
-	logger    *logr.Logger
+	podIndexer    index.PodIndexer
+	store         kubernetes.RuntimeObjectStore
+	eventRecorder kubernetes.EventRecorder
+	clock         clock.Clock
+	persistor     Persistor
+	cache         drainCache
+	logger        logr.Logger
+
+	defaultDrainBuffer time.Duration
+}
+
+const (
+	eventDrainBufferBadConfiguration = "DrainBufferBadConfiguration"
+)
+
+// GetDrainBufferConfigurationDetails retrieve all the drain configuration details
+func (buffer *drainBufferImpl) GetDrainBufferConfigurationDetails(ctx context.Context, node *v1.Node) (kubernetes.AnnotationSearchResult[time.Duration], error) {
+	return kubernetes.GetAnnotationFromNodeAndThenPodOrController(ctx, buffer.podIndexer, buffer.store, time.ParseDuration, kubernetes.CustomDrainBufferAnnotation, node, false, false)
+}
+
+// GetDrainBufferConfiguration does a best effort to find a valid configuration and always return a value. The error can be non nil if something went wrong during the processing, still the value can be used. Worst case you get the default value.
+func (buffer *drainBufferImpl) GetDrainBufferConfiguration(ctx context.Context, node *v1.Node) (time.Duration, error) {
+	searchResult, err := buffer.GetDrainBufferConfigurationDetails(ctx, node)
+	if err != nil || !searchResult.Found {
+		return buffer.defaultDrainBuffer, err
+	}
+
+	cleanResult, ok := searchResult.PruneErrors(
+		func(node *v1.Node, err error) {
+			buffer.eventRecorder.NodeEventf(ctx, node, v1.EventTypeWarning, eventDrainBufferBadConfiguration, "failed to parse drainBuffer: "+err.Error()) // The parsing error is given to the user
+		},
+		func(pod *v1.Pod, err error) {
+			buffer.eventRecorder.PodEventf(ctx, pod, v1.EventTypeWarning, eventDrainBufferBadConfiguration, "failed to parse drainBuffer: "+err.Error()) // The parsing error is given to the user
+		},
+	)
+	if !ok {
+		buffer.logger.V(logs.ZapDebug).Info("Fail to parse some of the drainBuffer", "node", node.Name)
+	}
+
+	durations := cleanResult.AsSlice()
+	if len(durations) == 0 {
+		return buffer.defaultDrainBuffer, err
+	}
+
+	var max time.Duration
+	for _, d := range durations {
+		if d > max {
+			max = d
+		}
+	}
+	return max, nil
 }
 
 // NewDrainBuffer returns a new instance of a drain buffer
-func NewDrainBuffer(ctx context.Context, persistor Persistor, clock clock.Clock, logger logr.Logger) DrainBuffer {
+func NewDrainBuffer(ctx context.Context, persistor Persistor, clock clock.Clock, logger logr.Logger, eventRecorder kubernetes.EventRecorder, podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, defaultDrainBuffer time.Duration) DrainBuffer {
 	drainBuffer := &drainBufferImpl{
-		isInitialized: false,
-		isDirty:       false,
-		clock:         clock,
-		persistor:     persistor,
-		cache:         drainCache{},
-		logger:        &logger,
+		defaultDrainBuffer: defaultDrainBuffer,
+		isInitialized:      false,
+		isDirty:            false,
+		clock:              clock,
+		persistor:          persistor,
+		cache:              drainCache{},
+		logger:             logger.WithName("drainBuffer"),
+		eventRecorder:      eventRecorder,
+		podIndexer:         podIndexer,
+		store:              store,
 	}
 
 	go drainBuffer.persistenceLoop(ctx)
