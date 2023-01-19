@@ -367,6 +367,7 @@ func TestGetAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 			want: AnnotationSearchResult[string]{
 				Value: testValue,
 				Found: true,
+				Node:  nodeWithKey,
 			},
 		},
 		{
@@ -538,6 +539,21 @@ func TestAnnotationSearchResult_IsValueUnique(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "unique value on multiple pod and node",
+			ar: AnnotationSearchResult[string]{
+				Found: true,
+				Value: "a",
+				Node:  &core.Node{},
+				PodResults: map[string][]AnnotationSearchResultOnPod[string]{
+					"a": {
+						{Value: "a", Pod: &core.Pod{}},
+						{Value: "a", Pod: &core.Pod{}},
+						{Value: "a", Pod: &core.Pod{}, OnController: true}},
+				},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -581,8 +597,8 @@ func TestAnnotationSearchResult_AsSlice(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sort.Strings(tt.wantOut)
-			sort.Strings(tt.ar.AsSlice())
-			assert.Equalf(t, tt.wantOut, tt.ar.AsSlice(), "AsSlice()")
+			sort.Strings(tt.ar.ValuesWithoutDupe())
+			assert.Equalf(t, tt.wantOut, tt.ar.ValuesWithoutDupe(), "ValuesWithoutDupe()")
 		})
 	}
 }

@@ -92,9 +92,9 @@ func (buffer *drainBufferImpl) GetDrainBufferConfiguration(ctx context.Context, 
 		buffer.logger.V(logs.ZapDebug).Info("Fail to parse some of the drainBuffer", "node", node.Name)
 	}
 
-	durations := cleanResult.AsSlice()
+	durations := cleanResult.ValuesWithoutDupe()
 	if len(durations) == 0 {
-		return buffer.defaultDrainBuffer, err
+		return buffer.defaultDrainBuffer, nil
 	}
 
 	var max time.Duration

@@ -432,7 +432,7 @@ type AnnotationSearchResult[T comparable] struct {
 	errorConv    error                                       // this is private because it can and shouldn't be serialized for diagnostics
 	ErrorConvStr string                                      `json:"errorConversion,omitempty"`
 	Node         *core.Node                                  `json:"-"`
-	PodResults   map[string][]AnnotationSearchResultOnPod[T] `json:"pods,omitempty"`
+	PodResults   map[string][]AnnotationSearchResultOnPod[T] `json:"pods,omitempty"` // The key of the map is the string value of the annotation.
 }
 
 type SerializationAliasAnnotationSearchResultOnPod[T comparable] AnnotationSearchResultOnPod[T]
@@ -460,7 +460,7 @@ func (a *AnnotationSearchResult[T]) addPodResult(k string, r AnnotationSearchRes
 	a.PodResults[k] = append(a.PodResults[k], r)
 }
 
-func (a *AnnotationSearchResult[T]) AsSlice() (out []T) {
+func (a *AnnotationSearchResult[T]) ValuesWithoutDupe() (out []T) {
 	if !a.Found {
 		return nil
 	}
@@ -545,13 +545,14 @@ func GetAnnotationFromNodeAndThenPodOrController[T comparable](ctx context.Conte
 		if valueStr, ok := node.Annotations[annotationKey]; ok {
 			result.Value, result.errorConv = converter(valueStr)
 			result.Found = (result.errorConv == nil)
+			result.Node = node
 			if stopIfFoundOnNode {
 				return result, nil
 			}
 		}
 	}
 	if podIndexer == nil {
-		return result, nil
+		return result, fmt.Errorf("missing indexer to continue on pod exploration")
 	}
 
 	pods, err := podIndexer.GetPodsByNode(ctx, node.Name)
