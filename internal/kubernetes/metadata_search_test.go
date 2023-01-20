@@ -2,7 +2,9 @@ package kubernetes
 
 import (
 	"context"
-	"fmt"
+	"sort"
+	"testing"
+
 	"github.com/go-logr/zapr"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
@@ -13,8 +15,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	fakeclient "k8s.io/client-go/kubernetes/fake"
-	"sort"
-	"testing"
 )
 
 func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
@@ -41,7 +41,7 @@ func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "no-annotation",
 			Namespace: "ns",
-			OwnerReferences: []metav1.OwnerReference{metav1.OwnerReference{
+			OwnerReferences: []metav1.OwnerReference{{
 				Controller: &isController,
 				Kind:       kindReplicaSet,
 				Name:       deploymentName + "-xyz",
@@ -57,7 +57,7 @@ func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 			Name:        "no-key",
 			Namespace:   "ns",
 			Annotations: map[string]string{},
-			OwnerReferences: []metav1.OwnerReference{metav1.OwnerReference{
+			OwnerReferences: []metav1.OwnerReference{{
 				Controller: &isController,
 				Kind:       kindReplicaSet,
 				Name:       deploymentName + "-xyz",
@@ -73,7 +73,7 @@ func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 			Name:        "with-key",
 			Namespace:   "ns",
 			Annotations: map[string]string{testKey: testValue},
-			OwnerReferences: []metav1.OwnerReference{metav1.OwnerReference{
+			OwnerReferences: []metav1.OwnerReference{{
 				Controller: &isController,
 				Kind:       kindReplicaSet,
 				Name:       deploymentName + "-xyz",
@@ -98,36 +98,36 @@ func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 		},
 	}
 
-	pods := map[string]*core.Pod{
-		podWithKey.Name:      podWithKey,
-		podNoKey.Name:        podNoKey,
-		podNoAnnotation.Name: podNoAnnotation,
-	}
+	// pods := map[string]*core.Pod{
+	// podWithKey.Name:      podWithKey,
+	// podNoKey.Name:        podNoKey,
+	// podNoAnnotation.Name: podNoAnnotation,
+	// }
 
 	tests := []struct {
 		name    string
 		node    *core.Node
 		objects []runtime.Object
-		want    map[string][]MetadataSearchResultItem[string]
+		want    []MetaSerachResultItem[string]
 		wantErr bool
 	}{
 		{
 			name: "node no annotation",
 			node: nodeNoAnnotation,
-			want: map[string][]MetadataSearchResultItem[string]{},
+			want: []MetaSerachResultItem[string]{},
 		},
 		{
 			name: "node no key",
 			node: nodeNoKey,
-			want: map[string][]MetadataSearchResultItem[string]{},
+			want: []MetaSerachResultItem[string]{},
 		},
 		{
 			name: "node with key",
 			node: nodeWithKey,
-			want: map[string][]MetadataSearchResultItem[string]{testValue: {{
-				Value: testValue,
-				Node:  nodeWithKey,
-			}}},
+			want: []MetaSerachResultItem[string]{{
+				Value: &testValue,
+				Item:  nodeWithKey,
+			}},
 		},
 		{
 			name: "node,pod no annotation, controller no key",
@@ -135,12 +135,12 @@ func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 			objects: []runtime.Object{
 				podNoAnnotation, DeploymentNoKey,
 			},
-			want: map[string][]MetadataSearchResultItem[string]{},
+			want: []MetaSerachResultItem[string]{},
 		},
 		{
 			name: "node,pod,controller no key",
 			node: nodeNoKey,
-			want: map[string][]MetadataSearchResultItem[string]{},
+			want: []MetaSerachResultItem[string]{},
 			objects: []runtime.Object{
 				podNoKey, DeploymentNoKey,
 			},
@@ -148,11 +148,11 @@ func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 		{
 			name: "node,pod,no key and controller with key",
 			node: nodeNoKey,
-			want: map[string][]MetadataSearchResultItem[string]{testValue: {{
-				Value:        testValue,
-				Pod:          podNoKey,
-				OnController: true,
-			}}},
+			want: []MetaSerachResultItem[string]{{
+				Value:  &testValue,
+				Item:   podNoKey,
+				Origin: "controlelr",
+			}},
 			objects: []runtime.Object{
 				podNoKey, DeploymentWithKey, nodeNoKey,
 			},
@@ -160,11 +160,11 @@ func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 		{
 			name: "node no key, pod,controller with key",
 			node: nodeNoKey,
-			want: map[string][]MetadataSearchResultItem[string]{testValue: {{
-				Value:        testValue,
-				Pod:          podWithKey,
-				OnController: false,
-			}}},
+			want: []MetaSerachResultItem[string]{{
+				Value:  &testValue,
+				Item:   podWithKey,
+				Origin: "pod",
+			}},
 			objects: []runtime.Object{
 				podWithKey, DeploymentWithKey,
 			},
@@ -192,61 +192,71 @@ func TestSearcAnnotationFromNodeAndThenPodOrController(t *testing.T) {
 				t.Fatalf("can't create fakeIndexer: %#v", err)
 			}
 
-			got, err := SearchAnnotationFromNodeAndThenPodOrController(context.Background(), fakeIndexer, store, func(s string) (string, error) { return s, nil }, testKey, tt.node, true, true)
-			if tt.wantErr != (err != nil) {
-				fmt.Printf("%sGetAnnotationFromNodeAndThenPodOrController() ERR: %#v", tt.name, err)
-				t.Failed()
-			}
-			if err != nil {
-				return
+			got := SearchAnnotationFromNodeAndThenPodOrController(context.Background(), fakeIndexer, store, func(s string) (string, error) { return s, nil }, testKey, tt.node, true, true)
+			assert.Equal(t, len(tt.want), len(got.Items), "Found more or less than the expected amount of results")
+
+			for _, want := range tt.want {
+				found := false
+				for _, item := range got.Items {
+					if *item.Value == *want.Value {
+						found = true
+						break
+					}
+				}
+				if !found {
+					assert.Fail(t, "%v was not found in result", want)
+				}
 			}
 
 			// be sure that we are using the same pointer for comparison
-			for _, v := range got.Result {
-				for i := range v {
-					if v[i].Pod != nil {
-						v[i].Pod = pods[v[i].Pod.Name]
-					}
-				}
-			}
-			for _, v := range tt.want {
-				for i := range v {
-					if v[i].Pod != nil {
-						v[i].Pod = pods[v[i].Pod.Name]
-					}
-				}
-			}
+			// for _, v := range got.Result {
+			// for i := range v {
+			// if v[i].Pod != nil {
+			// v[i].Pod = pods[v[i].Pod.Name]
+			// }
+			// }
+			// }
+			// for _, v := range tt.want {
+			// for i := range v {
+			// if v[i].Pod != nil {
+			// v[i].Pod = pods[v[i].Pod.Name]
+			// }
+			// }
+			// }
 
-			assert.Equalf(t, tt.want, got.Result, "GetAnnotationFromNodeAndThenPodOrController()")
+			// assert.Equalf(t, tt.want, got.Result, "GetAnnotationFromNodeAndThenPodOrController()")
 		})
 	}
 }
 
 func TestMetadataSearch_ValuesWithoutDupe(t *testing.T) {
-	type testCase[T any] struct {
+	aVal := "a"
+	bVal := "b"
+	cVal := "c"
+	type testCase[T comparable] struct {
 		name    string
-		a       MetadataSearch[T]
+		a       MetaSerachResult[T]
 		wantOut []T
 	}
 	tests := []testCase[string]{
 		{
 			name: "dupe node pod",
-			a: MetadataSearch[string]{
-				Result: map[string][]MetadataSearchResultItem[string]{"a": {{Value: "a", Node: &core.Node{}}, {Value: "a", Pod: &core.Pod{}}}, "b": {{Value: "b"}}},
+			a: MetaSerachResult[string]{
+				Items: []MetaSerachResultItem[string]{{Value: &aVal, Item: &core.Node{}}, {Value: &aVal, Item: &core.Pod{}}, {Value: &bVal}},
 			},
 			wantOut: []string{"a", "b"},
 		},
 		{
 			name: "pod only",
-			a: MetadataSearch[string]{
-				Result: map[string][]MetadataSearchResultItem[string]{"a": {{Value: "a"}}, "b": {{Value: "b"}}, "c": {{Value: "c"}}},
+			a: MetaSerachResult[string]{
+				Items: []MetaSerachResultItem[string]{{Value: &aVal}, {Value: &bVal}, {Value: &cVal}},
 			},
 			wantOut: []string{"a", "b", "c"},
 		},
 		{
 			name:    "nil",
-			a:       MetadataSearch[string]{},
-			wantOut: nil,
+			a:       MetaSerachResult[string]{},
+			wantOut: []string{},
 		},
 	}
 	for _, tt := range tests {

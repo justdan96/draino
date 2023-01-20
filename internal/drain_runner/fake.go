@@ -3,8 +3,9 @@ package drain_runner
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/tools/record"
 	"time"
+
+	"k8s.io/client-go/tools/record"
 
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -65,14 +66,22 @@ func (opts *FakeOptions) ApplyDefaults() error {
 	if opts.Filter == nil {
 		opts.Filter = filters.FilterFromFunction("always_true", func(ctx context.Context, n *v1.Node) bool { return true })
 	}
-	if opts.DrainBuffer == nil {
-		fakeClient := fake.NewSimpleClientset()
-		configMapClient := fakeClient.CoreV1().ConfigMaps("default")
-		persistor := drainbuffer.NewConfigMapPersistor(configMapClient, "fake-buffer", "default")
-		recorder := kubernetes.NewEventRecorder(record.NewFakeRecorder(1000))
-		opts.DrainBuffer = drainbuffer.NewDrainBuffer(context.Background(), persistor, opts.Clock, *opts.Logger, recorder, nil, nil, kubernetes.DefaultDrainBuffer)
-	}
 	return nil
+}
+
+func (opts *FakeOptions) InitDrainBuffer(indexer *index.Indexer) {
+	if opts.DrainBuffer != nil {
+		return
+	}
+
+	fakeClient := fake.NewSimpleClientset()
+	configMapClient := fakeClient.CoreV1().ConfigMaps("default")
+	persistor := drainbuffer.NewConfigMapPersistor(configMapClient, "fake-buffer", "default")
+	recorder := kubernetes.NewEventRecorder(record.NewFakeRecorder(1000))
+
+	store, _ := kubernetes.RunStoreForTest(context.Background(), fakeClient)
+
+	opts.DrainBuffer = drainbuffer.NewDrainBuffer(context.Background(), persistor, opts.Clock, *opts.Logger, recorder, indexer, store, kubernetes.DefaultDrainBuffer)
 }
 
 // NewFakeRunner will create an instances of the drain runner with mocked dependencies.
@@ -86,6 +95,8 @@ func NewFakeRunner(opts *FakeOptions) (*drainRunner, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	opts.InitDrainBuffer(fakeIndexer)
 
 	// Start the informers and wait for them to sync
 	opts.ClientWrapper.Start(opts.Chan)

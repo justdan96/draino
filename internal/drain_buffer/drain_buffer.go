@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
+	"time"
+
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	v1 "k8s.io/api/core/v1"
-	"sync"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/groups"
@@ -32,7 +33,7 @@ type DrainBuffer interface {
 	// GetDrainBufferConfiguration retrieve the drain buffer configuration with a node (and associated pods)
 	GetDrainBufferConfiguration(ctx context.Context, node *v1.Node) (time.Duration, error)
 	// GetDrainBufferConfigurationDetails retrieve the drain buffer configuration with a node (and associated pods)
-	GetDrainBufferConfigurationDetails(ctx context.Context, node *v1.Node) (*kubernetes.MetadataSearch[time.Duration], error)
+	GetDrainBufferConfigurationDetails(ctx context.Context, node *v1.Node) kubernetes.MetaSerachResult[time.Duration]
 }
 
 var _ DrainBuffer = &drainBufferImpl{}
@@ -68,16 +69,13 @@ const (
 )
 
 // GetDrainBufferConfigurationDetails retrieve all the drain configuration details
-func (buffer *drainBufferImpl) GetDrainBufferConfigurationDetails(ctx context.Context, node *v1.Node) (*kubernetes.MetadataSearch[time.Duration], error) {
+func (buffer *drainBufferImpl) GetDrainBufferConfigurationDetails(ctx context.Context, node *v1.Node) kubernetes.MetaSerachResult[time.Duration] {
 	return kubernetes.SearchAnnotationFromNodeAndThenPodOrController(ctx, buffer.podIndexer, buffer.store, time.ParseDuration, kubernetes.CustomDrainBufferAnnotation, node, false, false)
 }
 
 // GetDrainBufferConfiguration does a best effort to find a valid configuration and always return a value. The error can be non nil if something went wrong during the processing, still the value can be used. Worst case you get the default value.
 func (buffer *drainBufferImpl) GetDrainBufferConfiguration(ctx context.Context, node *v1.Node) (time.Duration, error) {
-	searchResult, err := buffer.GetDrainBufferConfigurationDetails(ctx, node)
-	if err != nil {
-		return buffer.defaultDrainBuffer, err
-	}
+	searchResult := buffer.GetDrainBufferConfigurationDetails(ctx, node)
 
 	searchResult.HandlerError(
 		func(node *v1.Node, err error) {
