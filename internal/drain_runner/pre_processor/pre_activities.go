@@ -11,6 +11,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
+	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/clock"
@@ -127,8 +128,7 @@ func (pre *PreActivitiesPreProcessor) Reset(ctx context.Context, node *corev1.No
 		}
 	}
 
-	// TODO return errors
-	return nil
+	return utils.JoinErrors(errors, ";")
 }
 
 type preActivityConfiguration struct {
