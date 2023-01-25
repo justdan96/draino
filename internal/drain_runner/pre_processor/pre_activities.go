@@ -101,6 +101,10 @@ func (pre *PreActivitiesPreProcessor) IsDone(ctx context.Context, node *corev1.N
 	return true, "", nil
 }
 
+func (pre *PreActivitiesPreProcessor) Reset(ctx context.Context, node *corev1.Node) error {
+	return nil
+}
+
 type preActivityConfiguration struct {
 	state   string
 	timeout time.Duration

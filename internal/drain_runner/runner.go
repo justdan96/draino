@@ -203,6 +203,7 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 		CounterDrainedNodes(candidate, DrainedNodeResultFailed, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), string(kubernetes.GetFailureCause(err)))
 		loggerForNode.Error(err, "failed to drain node")
 		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Drain failed: %v", err)
+		runner.resetPreProcessors(ctx, candidate)
 		updatedNode, errRetryWall := runner.updateRetryWallOnCandidate(ctx, candidate, err.Error())
 		if errRetryWall != nil {
 			loggerForNode.Error(errRetryWall, "Failed to remove taint following drain failure")
@@ -247,6 +248,19 @@ func (runner *drainRunner) checkPreprocessors(ctx context.Context, candidate *co
 		}
 	}
 	return
+}
+
+// resetPreProcessors will iterate over all pre processors and call the reset function.
+func (runner *drainRunner) resetPreProcessors(ctx context.Context, candidate *corev1.Node) {
+	span, ctx := tracer.StartSpanFromContext(ctx, "ResetPreProcessors")
+	defer span.Finish()
+
+	for _, pre := range runner.preprocessors {
+		err := pre.Reset(ctx, candidate)
+		if err != nil {
+			runner.logger.Error(err, "failed to reset preprocessor for node", "preprocessor", pre.GetName(), "node", candidate.Name)
+		}
+	}
 }
 
 func (runner *drainRunner) refreshNode(ctx context.Context, node *corev1.Node) (refreshedNode *corev1.Node, err error) {

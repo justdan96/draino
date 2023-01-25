@@ -58,3 +58,7 @@ func (pre *NodeReplacementPreProcessor) IsDone(ctx context.Context, node *corev1
 		return false, PreProcessNotDoneReasonProcessing, nil
 	}
 }
+
+func (_ *NodeReplacementPreProcessor) Reset(ctx context.Context, node *corev1.Node) error {
+	return nil
+}
