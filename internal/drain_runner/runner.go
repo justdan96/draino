@@ -166,6 +166,7 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 	allPreprocessorsDone, shouldAbort, err := runner.checkPreprocessors(ctx, candidate)
 	if shouldAbort {
 		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Error while waiting fro pre conditions: %v", err)
+		runner.resetPreProcessors(ctx, candidate)
 		newNode, err := runner.updateRetryWallOnCandidate(ctx, candidate, fmt.Sprintf("pre-conditions failed %v", err))
 		if err != nil {
 			return err

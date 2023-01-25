@@ -274,7 +274,7 @@ func TestPreActivitiesPreProcessor(t *testing.T) {
 			defer close(ch)
 			wrapper.Start(ch)
 
-			preProcessor := NewPreActivitiesPreProcessor(idx, store, logger, recorder, clock.RealClock{}, tt.DefaultTimeout)
+			preProcessor := NewPreActivitiesPreProcessor(wrapper.GetManagerClient(), idx, store, logger, recorder, clock.RealClock{}, tt.DefaultTimeout)
 
 			done, reason, err := preProcessor.IsDone(ctx, tt.Node)
 			assert.Equal(t, tt.ExpectedIsDone, done)

@@ -12,7 +12,9 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/clock"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -33,6 +35,7 @@ const PreProcessNotDoneReasonNotCandidate PreProcessNotDoneReason = "given node 
 // PreActivitiesPreProcessor is checking if all the pre activities, set on nodes/pods/controller, are done.
 // https://datadoghq.atlassian.net/wiki/spaces/K8S/pages/2791706268/WIP+NLA+Pre-activies+API+proposal
 type PreActivitiesPreProcessor struct {
+	client         client.Client
 	podIndexer     index.PodIndexer
 	store          kubernetes.RuntimeObjectStore
 	logger         logr.Logger
@@ -41,8 +44,9 @@ type PreActivitiesPreProcessor struct {
 	defaultTimeout time.Duration
 }
 
-func NewPreActivitiesPreProcessor(podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, logger logr.Logger, eventRecorder kubernetes.EventRecorder, clock clock.Clock, defaultTimeout time.Duration) DrainPreProcessor {
+func NewPreActivitiesPreProcessor(client client.Client, podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, logger logr.Logger, eventRecorder kubernetes.EventRecorder, clock clock.Clock, defaultTimeout time.Duration) DrainPreProcessor {
 	return &PreActivitiesPreProcessor{
+		client:         client,
 		podIndexer:     podIndexer,
 		store:          store,
 		logger:         logger.WithName("PreActivitiesPreProcessor"),
@@ -102,12 +106,36 @@ func (pre *PreActivitiesPreProcessor) IsDone(ctx context.Context, node *corev1.N
 }
 
 func (pre *PreActivitiesPreProcessor) Reset(ctx context.Context, node *corev1.Node) error {
+	activities, err := pre.getActivities(ctx, node)
+	if err != nil {
+		return err
+	}
+
+	errors := []error{}
+	for _, item := range activities {
+		converted, ok := item.sourceObject.(client.Object)
+		if !ok {
+			errors = append(errors, fmt.Errorf("cannot cast source object"))
+			continue
+		}
+		err := pre.client.Patch(ctx, converted, &k8sclient.AnnotationPatch{
+			Key:   item.annotation,
+			Value: PreActivityAnnotationNotStarted,
+		})
+		if err != nil {
+			errors = append(errors, err)
+		}
+	}
+
+	// TODO return errors
 	return nil
 }
 
 type preActivityConfiguration struct {
-	state   string
-	timeout time.Duration
+	annotation   string
+	state        string
+	timeout      time.Duration
+	sourceObject metav1.Object
 }
 
 // getActivities will search for all pre activity annotations in the whole chain (node -> pod -> controller).
@@ -143,7 +171,7 @@ func (pre *PreActivitiesPreProcessor) getActivities(ctx context.Context, node *c
 	result := map[string]*preActivityConfiguration{}
 	for _, item := range activitySearch.Results() {
 		key := keyFromMetadataSearchResultItem(item, PreActivityAnnotationPrefix)
-		result[key] = &preActivityConfiguration{state: item.Value, timeout: pre.defaultTimeout}
+		result[key] = &preActivityConfiguration{state: item.Value, timeout: pre.defaultTimeout, annotation: item.Key, sourceObject: item.Source}
 	}
 
 	for _, item := range activityTimeoutSearch.Results() {
