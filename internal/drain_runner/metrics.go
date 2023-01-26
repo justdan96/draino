@@ -51,6 +51,6 @@ const (
 	DrainRunnerComponent = "drain_runner"
 )
 
-func incGlobalInternalError(reason, nodeName string) {
-	global_metrics.IncInternalError(DrainRunnerComponent, reason, "", nodeName)
+func incGlobalInternalError(reason, nodeName, group string) {
+	global_metrics.IncInternalError(DrainRunnerComponent, reason, group, nodeName)
 }
