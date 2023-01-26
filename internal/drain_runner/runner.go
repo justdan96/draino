@@ -25,6 +25,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
+	"github.com/planetlabs/draino/internal/metrics"
 )
 
 // DrainTimeout how long is it acceptable for a drain to run
@@ -236,7 +237,7 @@ func (runner *drainRunner) checkPreprocessors(ctx context.Context, candidate *co
 		if err != nil {
 			allDone = false
 			runner.logger.Error(err, "failed during preprocessor evaluation", "preprocessor", pre.GetName(), "node", candidate.Name)
-			incGlobalInternalError("check_preprocessors", candidate.Name, string(groupKey))
+			metrics.IncInternalError(DrainRunnerComponent, "check_preprocessors", candidate.Name, string(groupKey))
 			continue
 		}
 		if reason != "" && reason != preprocessor.PreProcessNotDoneReasonProcessing {
@@ -260,7 +261,7 @@ func (runner *drainRunner) resetPreProcessors(ctx context.Context, candidate *co
 
 	for _, pre := range runner.preprocessors {
 		err := pre.Reset(ctx, candidate)
-		incGlobalInternalError("reset_preprocessors", candidate.Name, string(groupKey))
+		metrics.IncInternalError(DrainRunnerComponent, "reset_preprocessors", candidate.Name, string(groupKey))
 		if err != nil {
 			runner.logger.Error(err, "failed to reset preprocessor for node", "preprocessor", pre.GetName(), "node", candidate.Name)
 		}
@@ -311,7 +312,7 @@ func (runner *drainRunner) updateRetryWallOnCandidate(ctx context.Context, candi
 
 	newNode, err := runner.retryWall.SetNewRetryWallTimestamp(ctx, candidate, reason, runner.clock.Now())
 	if err != nil {
-		incGlobalInternalError("update_retry_wall", candidate.Name, string(groupKey))
+		metrics.IncInternalError(DrainRunnerComponent, "update_retry_wall", candidate.Name, string(groupKey))
 		return nil, err
 	}
 	rw := runner.retryWall.GetRetryWallTimestamp(newNode)

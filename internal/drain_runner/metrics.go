@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
-	"github.com/planetlabs/draino/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	core "k8s.io/api/core/v1"
 )
@@ -50,7 +49,3 @@ func CounterDrainedNodes(node *core.Node, result DrainNodesResult, conditions []
 const (
 	DrainRunnerComponent = "drain_runner"
 )
-
-func incGlobalInternalError(reason, nodeName, group string) {
-	metrics.IncInternalError(DrainRunnerComponent, reason, group, nodeName)
-}
