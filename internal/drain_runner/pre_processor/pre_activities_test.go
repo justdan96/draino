@@ -298,7 +298,7 @@ func TestPreActivitiesPreProcessor_Reset(t *testing.T) {
 			},
 		},
 		Spec: corev1.PodSpec{
-			NodeName: "test-ndoe",
+			NodeName: "test-node",
 		},
 	}
 

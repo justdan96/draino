@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/DataDog/compute-go/logs"
 	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/kubernetes"
@@ -123,7 +125,8 @@ func (pre *PreActivitiesPreProcessor) Reset(ctx context.Context, node *corev1.No
 			Key:   item.annotation,
 			Value: PreActivityAnnotationNotStarted,
 		})
-		if err != nil {
+		// In case the node is already gone, we don't care anymore.
+		if err != nil && !apierrors.IsNotFound(err) {
 			errors = append(errors, err)
 		}
 	}
@@ -131,7 +134,7 @@ func (pre *PreActivitiesPreProcessor) Reset(ctx context.Context, node *corev1.No
 	return utils.JoinErrors(errors, ";")
 }
 
-type preActivityConfiguration struct {
+type preActivity struct {
 	annotation   string
 	state        string
 	timeout      time.Duration
@@ -140,7 +143,7 @@ type preActivityConfiguration struct {
 
 // getActivities will search for all pre activity annotations in the whole chain (node -> pod -> controller).
 // Furthermore, it's going to evaluate the timeout annotation for the same activity
-func (pre *PreActivitiesPreProcessor) getActivities(ctx context.Context, node *corev1.Node) (map[string]*preActivityConfiguration, error) {
+func (pre *PreActivitiesPreProcessor) getActivities(ctx context.Context, node *corev1.Node) (map[string]*preActivity, error) {
 	activitySearch, err := kubernetes.NewSearch(ctx, pre.podIndexer, pre.store, preActivityStateConverter, node, PreActivityAnnotationPrefix, false, false, kubernetes.GetPrefixedAnnotation)
 	if err != nil {
 		return nil, err
@@ -168,10 +171,10 @@ func (pre *PreActivitiesPreProcessor) getActivities(ctx context.Context, node *c
 		},
 	)
 
-	result := map[string]*preActivityConfiguration{}
+	result := map[string]*preActivity{}
 	for _, item := range activitySearch.Results() {
 		key := keyFromMetadataSearchResultItem(item, PreActivityAnnotationPrefix)
-		result[key] = &preActivityConfiguration{state: item.Value, timeout: pre.defaultTimeout, annotation: item.Key, sourceObject: item.Source}
+		result[key] = &preActivity{state: item.Value, timeout: pre.defaultTimeout, annotation: item.Key, sourceObject: item.Source}
 	}
 
 	for _, item := range activityTimeoutSearch.Results() {
