@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/planetlabs/draino/internal/global_metrics"
 	"github.com/planetlabs/draino/internal/kubernetes"
+	"github.com/planetlabs/draino/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	core "k8s.io/api/core/v1"
 )
@@ -52,5 +52,5 @@ const (
 )
 
 func incGlobalInternalError(reason, nodeName, group string) {
-	global_metrics.IncInternalError(DrainRunnerComponent, reason, group, nodeName)
+	metrics.IncInternalError(DrainRunnerComponent, reason, group, nodeName)
 }

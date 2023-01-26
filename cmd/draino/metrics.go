@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/planetlabs/draino/internal/drain_runner"
-	globalmetrics "github.com/planetlabs/draino/internal/global_metrics"
+	globalmetrics "github.com/planetlabs/draino/internal/metrics"
 
 	"contrib.go.opencensus.io/exporter/prometheus"
 	"github.com/planetlabs/draino/internal/groups"

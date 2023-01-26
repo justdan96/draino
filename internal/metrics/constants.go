@@ -1,4 +1,4 @@
-package global_metrics
+package metrics
 
 const (
 	GlobalSubsystem          = "global"

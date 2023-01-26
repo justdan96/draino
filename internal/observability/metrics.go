@@ -6,7 +6,7 @@ import (
 
 	"github.com/DataDog/compute-go/metrics"
 	gmetrics "github.com/DataDog/compute-go/metrics"
-	globalmetrics "github.com/planetlabs/draino/internal/global_metrics"
+	globalmetrics "github.com/planetlabs/draino/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
