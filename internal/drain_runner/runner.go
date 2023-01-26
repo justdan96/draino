@@ -163,11 +163,11 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 
 	// Checking pre-activities
 	kubernetes.LogrForVerboseNode(runner.logger, candidate, "Node is candidate for drain, checking pre-activities")
-	allPreprocessorsDone, shouldAbort, err := runner.checkPreprocessors(ctx, candidate)
+	allPreprocessorsDone, shouldAbort, reason := runner.checkPreprocessors(ctx, candidate)
 	if shouldAbort {
-		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Error while waiting fro pre conditions: %v", err)
+		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Error while waiting fro pre conditions: %s", reason)
 		runner.resetPreProcessors(ctx, candidate)
-		newNode, err := runner.updateRetryWallOnCandidate(ctx, candidate, fmt.Sprintf("pre-conditions failed %v", err))
+		newNode, err := runner.updateRetryWallOnCandidate(ctx, candidate, fmt.Sprintf("pre-conditions failed %s", reason))
 		if err != nil {
 			return err
 		}
@@ -181,7 +181,7 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 
 	loggerForNode.Info("start draining")
 	// Draining a node is a blocking operation. This makes sure that one drain does not affect the other by taking PDB budget.
-	candidate, err = k8sclient.AddNLATaint(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDraining)
+	candidate, err := k8sclient.AddNLATaint(ctx, runner.client, candidate, runner.clock.Now(), k8sclient.TaintDraining)
 	if err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 	return nil
 }
 
-func (runner *drainRunner) checkPreprocessors(ctx context.Context, candidate *corev1.Node) (allDone bool, shouldAbort bool, errRes error) {
+func (runner *drainRunner) checkPreprocessors(ctx context.Context, candidate *corev1.Node) (allDone bool, shouldAbort bool, abortReason string) {
 	span, ctx := tracer.StartSpanFromContext(ctx, "CheckDrainPreprocessors")
 	defer span.Finish()
 
@@ -241,6 +241,7 @@ func (runner *drainRunner) checkPreprocessors(ctx context.Context, candidate *co
 		if reason != "" && reason != preprocessor.PreProcessNotDoneReasonProcessing {
 			runner.logger.Info("cannot finish pre-processing node, aborting", "node", candidate.Name, "preprocessor", pre.GetName(), "reason", reason)
 			shouldAbort = true
+			abortReason = string(reason)
 			return
 		}
 		if !done {
