@@ -1,11 +1,13 @@
 package drain_runner
 
 import (
+	"reflect"
+	"sync"
+
+	"github.com/planetlabs/draino/internal/global_metrics"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/prometheus/client_golang/prometheus"
 	core "k8s.io/api/core/v1"
-	"reflect"
-	"sync"
 )
 
 var (
@@ -43,4 +45,12 @@ func CounterDrainedNodes(node *core.Node, result DrainNodesResult, conditions []
 		tags := []string{string(result), failureReason, c, values.NgName, kubernetes.GetNodeGroupNamePrefix(values.NgName), values.NgNamespace, values.Team}
 		Metrics.DrainedNodes.WithLabelValues(tags...).Add(1)
 	}
+}
+
+const (
+	DrainRunnerComponent = "drain_runner"
+)
+
+func incGlobalInternalError(reason, nodeName string) {
+	global_metrics.IncInternalError(DrainRunnerComponent, reason, "", nodeName)
 }

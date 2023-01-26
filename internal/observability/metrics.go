@@ -6,80 +6,70 @@ import (
 
 	"github.com/DataDog/compute-go/metrics"
 	gmetrics "github.com/DataDog/compute-go/metrics"
+	globalmetrics "github.com/planetlabs/draino/internal/global_metrics"
 	"github.com/prometheus/client_golang/prometheus"
-)
-
-const (
-	RetryWallSubsystem       = "retry_wall"
-	RunnerSubsystem          = "group_runner"
-	CandidateRunnerSubsystem = "candidate_runner"
-
-	NewTagNodeName = "node_name"
-	NewTagGroupKey = "group_key"
-
-	NewTagRunnerName = "runner_name"
 )
 
 var (
 	registerMetricsOnce sync.Once
 
 	// Retry Wall Subsystem
-	nodeRetriesTags = []string{NewTagNodeName, NewTagGroupKey}
+	nodeRetriesTags = []string{globalmetrics.TagNodeName, globalmetrics.TagGroupKey}
 	nodeRetries     = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: RetryWallSubsystem,
+		Subsystem: globalmetrics.RetryWallSubsystem,
 		Name:      "node_retries",
 		Help:      "Number of retries for each node",
 	}, nodeRetriesTags)
 	nodeRetriesCleaner gmetrics.GaugeCleaner
 
 	// Runner Subsystem
-	groupRunnerLoopDurationTags = []string{NewTagGroupKey, NewTagRunnerName}
+	groupRunnerLoopDurationTags = []string{globalmetrics.TagGroupKey, globalmetrics.TagRunnerName}
 	groupRunnerLoopDuration     = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: RunnerSubsystem,
+		Subsystem: globalmetrics.RunnerSubsystem,
 		Name:      "loop_duration",
 		Help:      "Loop duration in microseconds",
 	}, groupRunnerLoopDurationTags)
 	groupRunnerLoopDurationCleaner gmetrics.GaugeCleaner
 
 	// Candidate Runner Subsystem
-	candidateRunnerTags       = []string{NewTagGroupKey}
+	candidateRunnerTags       = []string{globalmetrics.TagGroupKey}
 	candidateRunnerTotalNodes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: CandidateRunnerSubsystem,
+		Subsystem: globalmetrics.CandidateRunnerSubsystem,
 		Name:      "total_nodes",
 		Help:      "Total amount of nodes in this group",
 	}, candidateRunnerTags)
 	candidateRunnerTotalNodesCleaner gmetrics.GaugeCleaner
 
 	candidateRunnerFilteredOutNodes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: CandidateRunnerSubsystem,
+		Subsystem: globalmetrics.CandidateRunnerSubsystem,
 		Name:      "filtered_out_nodes",
 		Help:      "Amount of nodes that were filtered out",
 	}, candidateRunnerTags)
 	candidateRunnerFilteredOutNodesCleaner metrics.GaugeCleaner
 
 	candidateRunnerTotalSlots = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: CandidateRunnerSubsystem,
+		Subsystem: globalmetrics.CandidateRunnerSubsystem,
 		Name:      "total_slots",
 		Help:      "Total amount of available drain candidate slots",
 	}, candidateRunnerTags)
 	candidateRunnerTotalSlotsCleaner metrics.GaugeCleaner
 
 	candidateRunnerRemainingSlots = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: CandidateRunnerSubsystem,
+		Subsystem: globalmetrics.CandidateRunnerSubsystem,
 		Name:      "remaining_slots",
 		Help:      "Current remaining drain candidate slots",
 	}, candidateRunnerTags)
 	candidateRunnerRemainingSlotsCleaner metrics.GaugeCleaner
 
 	candidateRunnerSimulationRejections = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: CandidateRunnerSubsystem,
+		Subsystem: globalmetrics.CandidateRunnerSubsystem,
 		Name:      "simulation_rejections",
 		Help:      "Amount of nodes that faild the drain simulation",
 	}, candidateRunnerTags)
 	candidateRunnerSimulationRejectionsCleaner metrics.GaugeCleaner
 
 	candidateRunnerRunRateLimited = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: CandidateRunnerSubsystem,
+		Subsystem: globalmetrics.CandidateRunnerSubsystem,
 		Name:      "run_rate_limited",
 		Help:      "Indicates if the run was stopped because of client side rate limiting. 1 = Yes",
 	}, candidateRunnerTags)
