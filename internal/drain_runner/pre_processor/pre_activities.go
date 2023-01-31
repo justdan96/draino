@@ -144,11 +144,11 @@ type preActivity struct {
 // getActivities will search for all pre activity annotations in the whole chain (node -> pod -> controller).
 // Furthermore, it's going to evaluate the timeout annotation for the same activity
 func (pre *PreActivitiesPreProcessor) getActivities(ctx context.Context, node *corev1.Node) (map[string]*preActivity, error) {
-	activitySearch, err := kubernetes.NewSearch(ctx, pre.podIndexer, pre.store, preActivityStateConverter, node, PreActivityAnnotationPrefix, false, false, kubernetes.GetPrefixedAnnotation)
+	activitySearch, err := kubernetes.NewSearch(ctx, pre.podIndexer, pre.store, preActivityStateConverter, node, PreActivityAnnotationPrefix, false, true, kubernetes.GetPrefixedAnnotation)
 	if err != nil {
 		return nil, err
 	}
-	activityTimeoutSearch, err := kubernetes.NewSearch(ctx, pre.podIndexer, pre.store, time.ParseDuration, node, PreActivityTimeoutAnnotationPrefix, false, false, kubernetes.GetPrefixedAnnotation)
+	activityTimeoutSearch, err := kubernetes.NewSearch(ctx, pre.podIndexer, pre.store, time.ParseDuration, node, PreActivityTimeoutAnnotationPrefix, false, true, kubernetes.GetPrefixedAnnotation)
 	if err != nil {
 		return nil, err
 	}
@@ -173,11 +173,21 @@ func (pre *PreActivitiesPreProcessor) getActivities(ctx context.Context, node *c
 
 	result := map[string]*preActivity{}
 	for _, item := range activitySearch.Results() {
+		// It doesn't make sense to have pre-activities on controller level as the pre-activity should be executed for every single pod eviction.
+		// So we are skipping these configurations until we find a proper use-case.
+		if item.OnController {
+			continue
+		}
 		key := keyFromMetadataSearchResultItem(item, PreActivityAnnotationPrefix)
 		result[key] = &preActivity{state: item.Value, timeout: pre.defaultTimeout, annotation: item.Key, sourceObject: item.Source}
 	}
 
 	for _, item := range activityTimeoutSearch.Results() {
+		// It doesn't make sense to have pre-activities on controller level as the pre-activity should be executed for every single pod eviction.
+		// So we are skipping these configurations until we find a proper use-case.
+		if item.OnController {
+			continue
+		}
 		key := keyFromMetadataSearchResultItem(item, PreActivityTimeoutAnnotationPrefix)
 		if _, exist := result[key]; !exist {
 			// TODO log event to the user
