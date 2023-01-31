@@ -27,7 +27,7 @@ func TestOffendingConditions(t *testing.T) {
 				}},
 			},
 			conditions: []string{"Cool"},
-			expected:   []SuppliedCondition{{Type: "Cool", Status: core.ConditionTrue}},
+			expected:   []SuppliedCondition{{Type: "Cool", Status: core.ConditionTrue, ExpectedResolutionTime: DefaultExpectedResolutionTime}},
 		},
 		{
 			name: "ManyMatchingConditions",
@@ -40,8 +40,8 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{"Cool", "Rad"},
 			expected: []SuppliedCondition{
-				{Type: "Cool", Status: core.ConditionTrue},
-				{Type: "Rad", Status: core.ConditionTrue},
+				{Type: "Cool", Status: core.ConditionTrue, ExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{Type: "Rad", Status: core.ConditionTrue, ExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
@@ -55,7 +55,7 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{"Cool", "Rad"},
 			expected: []SuppliedCondition{
-				{Type: "Cool", Status: core.ConditionTrue},
+				{Type: "Cool", Status: core.ConditionTrue, ExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
@@ -68,7 +68,7 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{"Cool", "Rad"},
 			expected: []SuppliedCondition{
-				{Type: "Rad", Status: core.ConditionTrue},
+				{Type: "Rad", Status: core.ConditionTrue, ExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
@@ -108,7 +108,7 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{"Cool=Unknown" + SuppliedConditionDurationSeparator + "10m"},
 			expected: []SuppliedCondition{
-				{Type: "Cool", Status: core.ConditionUnknown, MinimumDuration: 10 * time.Minute},
+				{Type: "Cool", Status: core.ConditionUnknown, MinimumDuration: 10 * time.Minute, ExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
@@ -132,7 +132,7 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{"Cool=Unknown" + SuppliedConditionDurationSeparator + "14m"},
 			expected: []SuppliedCondition{
-				{Type: "Cool", Status: core.ConditionUnknown, MinimumDuration: 14 * time.Minute},
+				{Type: "Cool", Status: core.ConditionUnknown, MinimumDuration: 14 * time.Minute, ExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 	}

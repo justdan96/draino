@@ -9,11 +9,22 @@ import (
 	core "k8s.io/api/core/v1"
 )
 
+const DefaultExpectedResolutionTime = time.Hour * 24 * 7
+
 // SuppliedCondition defines the condition will be watched.
 type SuppliedCondition struct {
-	Type            core.NodeConditionType
-	Status          core.ConditionStatus
+	Type   core.NodeConditionType
+	Status core.ConditionStatus
+	// Draino starts acting on a node with this condition after MinimumDuration has elapsed.
+	// If a node has multiple conditions, the smallest MinimumDuration is applied. Default is 0.
 	MinimumDuration time.Duration
+	// ExpectedResolutionTime is the duration given to draino and cluster-autoscaler (for
+	// in-scope nodes) or users (for out-of-scope nodes) to drain and scale down
+	// nodes with this condition. ExpectedResolutionTime and MinimumDuration start concurrently, so
+	// ExpectedResolutionTime should be higher than MinimumDuration. After ExpectedResolutionTime, the nodes need
+	// attention (metric->monitor->SLO). A higher priority is typically associated
+	// with a lower time limit. Default is 7 days for now.
+	ExpectedResolutionTime time.Duration
 }
 
 func GetNodeOffendingConditions(n *core.Node, suppliedConditions []SuppliedCondition) []SuppliedCondition {
@@ -28,6 +39,17 @@ func GetNodeOffendingConditions(n *core.Node, suppliedConditions []SuppliedCondi
 		}
 	}
 	return conditions
+}
+
+func IsOverdue(n *core.Node, suppliedCondition SuppliedCondition) bool {
+	for _, nodeCondition := range n.Status.Conditions {
+		if suppliedCondition.Type == nodeCondition.Type &&
+			suppliedCondition.Status == nodeCondition.Status &&
+			time.Since(nodeCondition.LastTransitionTime.Time) >= suppliedCondition.ExpectedResolutionTime {
+			return true
+		}
+	}
+	return false
 }
 
 func GetConditionsTypes(conditions []SuppliedCondition) []string {

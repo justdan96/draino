@@ -76,9 +76,9 @@ func ParseConditions(conditions []string) ([]SuppliedCondition, error) {
 		ts := strings.SplitN(c, "=", 2)
 		if len(ts) != 2 {
 			// Keep backward compatibility
-			ts = []string{c, "True;0s"}
+			ts = []string{c, "True;0s;168h"}
 		}
-		sm := strings.SplitN(ts[1], SuppliedConditionDurationSeparator, 2)
+		sm := strings.SplitN(ts[1], SuppliedConditionDurationSeparator, 3)
 		if len(sm) < 2 {
 			return nil, fmt.Errorf("failed to parse SuppliedCondition %s", c)
 		}
@@ -86,7 +86,14 @@ func ParseConditions(conditions []string) ([]SuppliedCondition, error) {
 		if err != nil {
 			return nil, err
 		}
-		parsed[i] = SuppliedCondition{core.NodeConditionType(ts[0]), core.ConditionStatus(sm[0]), duration}
+		expectedResolutionTime := DefaultExpectedResolutionTime
+		if len(sm) == 3 {
+			expectedResolutionTime, err = time.ParseDuration(sm[2])
+			if err != nil {
+				return nil, fmt.Errorf("cannot parse expected resolution time: %v", err)
+			}
+		}
+		parsed[i] = SuppliedCondition{core.NodeConditionType(ts[0]), core.ConditionStatus(sm[0]), duration, expectedResolutionTime}
 
 	}
 	return parsed, nil

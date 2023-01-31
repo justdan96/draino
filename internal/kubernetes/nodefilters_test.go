@@ -428,20 +428,30 @@ func TestParseConditions(t *testing.T) {
 		{
 			name:       "OldFormat",
 			conditions: []string{"Ready"},
-			expect:     []SuppliedCondition{SuppliedCondition{core.NodeConditionType("Ready"), core.ConditionStatus("True"), time.Duration(0) * time.Second}},
+			expect:     []SuppliedCondition{{core.NodeConditionType("Ready"), core.ConditionStatus("True"), 0, DefaultExpectedResolutionTime}},
 		},
 		{
 			name:       "Mixed",
 			conditions: []string{"Ready", "OutOfDisk=True;10m"},
 			expect: []SuppliedCondition{
-				SuppliedCondition{core.NodeConditionType("Ready"), core.ConditionStatus("True"), time.Duration(0) * time.Second},
-				SuppliedCondition{core.NodeConditionType("OutOfDisk"), core.ConditionStatus("True"), time.Duration(10) * time.Minute},
+				{core.NodeConditionType("Ready"), core.ConditionStatus("True"), 0, DefaultExpectedResolutionTime},
+				{core.NodeConditionType("OutOfDisk"), core.ConditionStatus("True"), 10 * time.Minute, DefaultExpectedResolutionTime},
 			},
 		},
 		{
 			name:       "NewFormat",
 			conditions: []string{"Ready=Unknown;30m"},
-			expect:     []SuppliedCondition{SuppliedCondition{core.NodeConditionType("Ready"), core.ConditionStatus("Unknown"), time.Duration(30) * time.Minute}},
+			expect:     []SuppliedCondition{{core.NodeConditionType("Ready"), core.ConditionStatus("Unknown"), 30 * time.Minute, DefaultExpectedResolutionTime}},
+		},
+		{
+			name:       "NewFormatWithExpectedResolutionTime",
+			conditions: []string{`Ready=Unknown;30m;24h`},
+			expect: []SuppliedCondition{{
+				Type:                   core.NodeConditionType("Ready"),
+				Status:                 core.ConditionStatus("Unknown"),
+				MinimumDuration:        30 * time.Minute,
+				ExpectedResolutionTime: 24 * time.Hour,
+			}},
 		},
 		{
 			name:       "FormatError",

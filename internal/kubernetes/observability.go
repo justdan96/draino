@@ -99,7 +99,25 @@ func (g *metricsObjectsForObserver) reset() error {
 		Measure:     g.MeasureNodesWithNodeOptions,
 		Description: "Number of nodes for each options",
 		Aggregation: view.LastValue(),
-		TagKeys:     []tag.Key{TagNodegroupName, TagNodegroupNamePrefix, TagNodegroupNamespace, TagTeam, TagDrainStatus, TagConditions, TagUserOptInViaPodAnnotation, TagUserOptOutViaPodAnnotation, TagUserAllowedConditionsAnnotation, TagDrainRetry, TagDrainRetryFailed, TagDrainRetryCustomMaxAttempt, TagPVCManagement, TagPreprovisioning, TagInScope, TagUserEvictionURL},
+		TagKeys: []tag.Key{
+			TagNodegroupName,
+			TagNodegroupNamePrefix,
+			TagNodegroupNamespace,
+			TagTeam,
+			TagDrainStatus,
+			TagConditions,
+			TagUserOptInViaPodAnnotation,
+			TagUserOptOutViaPodAnnotation,
+			TagUserAllowedConditionsAnnotation,
+			TagDrainRetry,
+			TagDrainRetryFailed,
+			TagDrainRetryCustomMaxAttempt,
+			TagPVCManagement,
+			TagPreprovisioning,
+			TagInScope,
+			TagUserEvictionURL,
+			TagOverdue,
+		},
 	}
 
 	g.previousMeasureCPUsWithNodeOptions = &view.View{
@@ -184,6 +202,7 @@ type inScopeTags struct {
 	UserAllowedConditionsAnnotation bool
 	TagUserEvictionURLViaAnnotation bool
 	Condition                       string
+	Overdue                         bool
 }
 
 type inScopeCPUTags struct {
@@ -258,10 +277,17 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 					NodeTagsValues: nodeTags,
 					InScope:        NodeInScopeWithConditionCheck(conditions, node),
 				}
+
+				overdue := map[string]bool{}
+				for _, c := range conditions {
+					overdue[string(c.Type)] = IsOverdue(node, c)
+				}
+
 				// adding a virtual condition 'any' to be able to count the nodes whatever the condition(s) or absence of condition.
 				conditionsWithAll := append(GetConditionsTypes(conditions), "any")
 				for _, c := range conditionsWithAll {
 					t.Condition = c
+					t.Overdue = overdue[c]
 					newMetricsValue[t] = newMetricsValue[t] + 1
 
 					tCPU.Condition = c
@@ -307,7 +333,8 @@ func (s *DrainoConfigurationObserverImpl) updateGauges(metrics inScopeMetrics, m
 			tag.Upsert(TagUserEvictionURL, strconv.FormatBool(tagsValues.TagUserEvictionURLViaAnnotation)),
 			tag.Upsert(TagUserOptInViaPodAnnotation, strconv.FormatBool(tagsValues.UserOptInViaPodAnnotation)),
 			tag.Upsert(TagUserOptOutViaPodAnnotation, strconv.FormatBool(tagsValues.UserOptOutViaPodAnnotation)),
-			tag.Upsert(TagUserAllowedConditionsAnnotation, strconv.FormatBool(tagsValues.UserAllowedConditionsAnnotation)))
+			tag.Upsert(TagUserAllowedConditionsAnnotation, strconv.FormatBool(tagsValues.UserAllowedConditionsAnnotation)),
+			tag.Upsert(TagOverdue, strconv.FormatBool(tagsValues.Overdue)))
 		stats.Record(allTags, s.metricsObjects.MeasureNodesWithNodeOptions.M(count))
 	}
 
