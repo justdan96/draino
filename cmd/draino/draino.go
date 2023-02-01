@@ -70,6 +70,7 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Default leader election settings.
@@ -106,7 +107,9 @@ func main() {
 			return errOptions
 		}
 
-		log, err := zap.NewProduction()
+		zapConfig := zap.NewProductionConfig()
+		zapConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		log, err := zapConfig.Build()
 		if err != nil {
 			return err
 		}
@@ -117,6 +120,8 @@ func main() {
 		drainoklog.RedirectToLogger(log)
 
 		defer log.Sync() // nolint:errcheck // no check required on program exit
+
+		log.Info("daniel test")
 
 		go launchTracerAndProfiler()
 
