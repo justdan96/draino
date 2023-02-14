@@ -455,6 +455,7 @@ const (
 	VolumeCleanup                   FailureCause = "volume_cleanup"
 	NodePreprovisioning             FailureCause = "node_preprovisioning_timeout"
 	AudienceNotFound                FailureCause = "audience_not_found"
+	ClientRateLimiting              FailureCause = "client_rate_limiting"
 )
 
 func GetFailureCause(err error) FailureCause {
@@ -493,6 +494,9 @@ func GetFailureCause(err error) FailureCause {
 	}
 	if errors.As(err, &AudienceNotFoundError{}) {
 		return AudienceNotFound
+	}
+	if errors.As(err, &CleintRateLimitingError{}) {
+		return ClientRateLimiting
 	}
 
 	return ""

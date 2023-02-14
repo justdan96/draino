@@ -162,6 +162,12 @@ func (e PodDeletionTimeoutError) Error() string {
 	return "timed out waiting for pod to be deleted (stuck terminating, check finalizers)"
 }
 
+type CleintRateLimitingError struct{}
+
+func (e CleintRateLimitingError) Error() string {
+	return "timed out while waiting for rate-limit token"
+}
+
 type VolumeCleanupError struct {
 	Err error
 }
@@ -1023,6 +1029,13 @@ func (d *APICordonDrainer) awaitDeletion(ctx context.Context, pod *core.Pod, tim
 		if apierrors.IsNotFound(err) {
 			return true, nil
 		}
+		// The kube client is calling "rateLimiter.Wait(ctx)", with the given context above.
+		// This means that it will wait until it either gets a token or until the context times out, which will result in the following generic error:
+		// > client rate limiter Wait returned an error: context deadline exceeded
+		// To make these more visible, we catch the error and print it as client-side rate limiting.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return false, CleintRateLimitingError{}
+		}
 		if err != nil {
 			return false, fmt.Errorf("cannot get pod %s/%s: %w", pod.GetNamespace(), pod.GetName(), err)
 		}
@@ -1265,6 +1278,13 @@ func (d *APICordonDrainer) awaitPVCDeletion(ctx context.Context, pvc *core.Persi
 		if apierrors.IsNotFound(err) {
 			d.l.Info("pvc not found. It is deleted.", zap.String("pvc", pvc.Name), zap.String("namespace", pvc.GetNamespace()), zap.String("pvc-uid", string(pvc.GetUID())))
 			return true, nil
+		}
+		// The kube client is calling "rateLimiter.Wait(ctx)", with the given context above.
+		// This means that it will wait until it either gets a token or until the context times out, which will result in the following generic error:
+		// > client rate limiter Wait returned an error: context deadline exceeded
+		// To make these more visible, we catch the error and print it as client-side rate limiting.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return false, CleintRateLimitingError{}
 		}
 		if err != nil {
 			return false, fmt.Errorf("cannot get pvc %s/%s: %w", pvc.GetNamespace(), pvc.GetName(), err)
