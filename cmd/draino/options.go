@@ -44,15 +44,6 @@ type Options struct {
 	skipCordonLimiterNodeAnnotation         string
 	skipCordonLimiterNodeAnnotationSelector labels.Selector
 
-	maxSimultaneousCordon          []string
-	maxSimultaneousCordonFunctions map[string]kubernetes.LimiterFunc
-
-	maxSimultaneousCordonForLabels          []string
-	maxSimultaneousCordonForLabelsFunctions map[string]kubernetes.LimiterFunc
-
-	maxSimultaneousCordonForTaints          []string
-	maxSimultaneousCordonForTaintsFunctions map[string]kubernetes.LimiterFunc
-
 	maxNotReadyNodes          []string
 	maxNotReadyNodesFunctions map[string]kubernetes.ComputeBlockStateFunctionFactory
 	maxNotReadyNodesPeriod    time.Duration
@@ -148,9 +139,6 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringSliceVar(&opt.protectedPodAnnotations, "protected-pod-annotation", []string{}, "Protect pods with this annotation from eviction. May be specified multiple times. KEY[=VALUE]")
 	fs.StringSliceVar(&opt.doNotCordonPodControlledBy, "do-not-cordon-pod-controlled-by", []string{"", kubernetes.KindStatefulSet}, "Do not cordon nodes hosting pods that are controlled by the designated kind, empty VALUE for uncontrolled pods, May be specified multiple times. kind[[.version].group]] examples: StatefulSets StatefulSets.apps StatefulSets.apps.v1")
 	fs.StringSliceVar(&opt.cordonProtectedPodAnnotations, "cordon-protected-pod-annotation", []string{}, "Protect nodes hosting pods with this annotation from cordon. May be specified multiple times. KEY[=VALUE]")
-	fs.StringSliceVar(&opt.maxSimultaneousCordon, "max-simultaneous-cordon", []string{}, "Maximum number of cordoned nodes in the cluster. (Value|Value%)")
-	fs.StringSliceVar(&opt.maxSimultaneousCordonForLabels, "max-simultaneous-cordon-for-labels", []string{}, "Maximum number of cordoned nodes in the cluster for given labels. Example: '2;app;shard'. (Value|Value%),keys...")
-	fs.StringSliceVar(&opt.maxSimultaneousCordonForTaints, "max-simultaneous-cordon-for-taints", []string{}, "Maximum number of cordoned nodes in the cluster for given taints. Example: '33%;node'. (Value|Value%),keys...")
 	fs.StringSliceVar(&opt.maxNotReadyNodes, "max-notready-nodes", []string{}, "Maximum number of NotReady nodes in the cluster. When exceeding this value draino stop taking actions. (Value|Value%)")
 	fs.StringSliceVar(&opt.maxPendingPods, "max-pending-pods", []string{}, "Maximum number of Pending Pods in the cluster. When exceeding this value draino stop taking actions. (Value|Value%)")
 	fs.StringSliceVar(&opt.optInPodAnnotations, "opt-in-pod-annotation", []string{}, "Pod filtering out is ignored if the pod holds one of these annotations. In a way, this makes the pod directly eligible for draino eviction. May be specified multiple times. KEY[=VALUE]")
@@ -195,31 +183,6 @@ func (o *Options) Validate() error {
 	o.skipCordonLimiterNodeAnnotationSelector, err = labels.Parse(o.skipCordonLimiterNodeAnnotation)
 	if err != nil {
 		return fmt.Errorf("cannot parse 'skip-cordon-limiter-node-annotation' argument, %#v", err)
-	}
-
-	o.maxSimultaneousCordonFunctions = map[string]kubernetes.LimiterFunc{}
-	for _, p := range o.maxSimultaneousCordon {
-		max, percent, parseErr := kubernetes.ParseCordonMax(p)
-		if err != nil {
-			return fmt.Errorf("cannot parse 'max-simultaneous-cordon' argument, %#v", parseErr)
-		}
-		o.maxSimultaneousCordonFunctions[p] = kubernetes.MaxSimultaneousCordonLimiterFunc(max, percent)
-	}
-	o.maxSimultaneousCordonForLabelsFunctions = map[string]kubernetes.LimiterFunc{}
-	for _, p := range o.maxSimultaneousCordonForLabels {
-		max, percent, keys, parseErr := kubernetes.ParseCordonMaxForKeys(p)
-		if parseErr != nil {
-			return fmt.Errorf("cannot parse 'max-simultaneous-cordon-for-labels' argument, %#v", parseErr)
-		}
-		o.maxSimultaneousCordonForLabelsFunctions[p] = kubernetes.MaxSimultaneousCordonLimiterForLabelsFunc(max, percent, keys)
-	}
-	o.maxSimultaneousCordonForTaintsFunctions = map[string]kubernetes.LimiterFunc{}
-	for _, p := range o.maxSimultaneousCordonForTaints {
-		max, percent, keys, parseErr := kubernetes.ParseCordonMaxForKeys(p)
-		if parseErr != nil {
-			return fmt.Errorf("cannot parse 'max-simultaneous-cordon-for-taints' argument, %#v", parseErr)
-		}
-		o.maxSimultaneousCordonForTaintsFunctions[p] = kubernetes.MaxSimultaneousCordonLimiterForTaintsFunc(max, percent, keys)
 	}
 
 	// NotReady Nodes and NotReady Pods

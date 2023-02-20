@@ -58,7 +58,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	client "k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/cache"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -127,12 +126,14 @@ func main() {
 		deployments := kubernetes.NewDeploymentWatch(ctx, cs)
 		persistentVolumes := kubernetes.NewPersistentVolumeWatch(ctx, cs)
 		persistentVolumeClaims := kubernetes.NewPersistentVolumeClaimWatch(ctx, cs)
+		nodes := kubernetes.NewNodeWatch(ctx, cs)
 		runtimeObjectStoreImpl := &kubernetes.RuntimeObjectStoreImpl{
 			DeploymentStore:            deployments,
 			StatefulSetsStore:          statefulSets,
 			PodsStore:                  pods,
 			PersistentVolumeStore:      persistentVolumes,
 			PersistentVolumeClaimStore: persistentVolumeClaims,
+			NodesStore:                 nodes,
 		}
 
 		// Sanitize user input
@@ -190,22 +191,6 @@ func main() {
 			podFilterCordon = append(podFilterCordon, kubernetes.NewPodFiltersNoStatefulSetOnNodeWithoutDisk(runtimeObjectStoreImpl))
 		}
 
-		// Cordon limiter
-		cordonLimiter := kubernetes.NewCordonLimiter(log)
-		cordonLimiter.SetSkipLimiterSelector(options.skipCordonLimiterNodeAnnotationSelector)
-		for p, f := range options.maxSimultaneousCordonFunctions {
-			cordonLimiter.AddLimiter("MaxSimultaneousCordon:"+p, f)
-		}
-		for p, f := range options.maxSimultaneousCordonForLabelsFunctions {
-			cordonLimiter.AddLimiter("MaxSimultaneousCordonLimiterForLabels:"+p, f)
-		}
-		for p, f := range options.maxSimultaneousCordonForTaintsFunctions {
-			cordonLimiter.AddLimiter("MaxSimultaneousCordonLimiterForTaints:"+p, f)
-		}
-
-		nodeReplacementLimiter := kubernetes.NewNodeReplacementLimiter(options.maxNodeReplacementPerHour, time.Now())
-
-		eventRecorder, _ := kubernetes.BuildEventRecorderWithAggregationOnEventType(zapr.NewLogger(log), cs, options.eventAggregationPeriod, options.excludedPodsPerNodeEstimation, options.logEvents)
 		eventRecorderForDrainerActivities, _ := kubernetes.BuildEventRecorderWithAggregationOnEventTypeAndMessage(zapr.NewLogger(log), cs, options.eventAggregationPeriod, options.logEvents)
 
 		consolidatedOptInAnnotations := append(options.optInPodAnnotations, options.shortLivedPodAnnotations...)
@@ -228,49 +213,17 @@ func main() {
 			kubernetes.EvictionHeadroom(options.evictionHeadroom),
 			kubernetes.WithSkipDrain(options.skipDrain),
 			kubernetes.WithPodFilter(drainerSkipPodFilter),
-			kubernetes.WithCordonLimiter(cordonLimiter),
-			kubernetes.WithNodeReplacementLimiter(nodeReplacementLimiter),
 			kubernetes.WithStorageClassesAllowingDeletion(options.storageClassesAllowingVolumeDeletion),
 			kubernetes.WithMaxDrainAttemptsBeforeFail(options.maxDrainAttemptsBeforeFail),
 			kubernetes.WithGlobalConfig(globalConfig),
 			kubernetes.WithAPICordonDrainerLogger(log),
+			kubernetes.WithRuntimeObjectStore(runtimeObjectStoreImpl),
 		)
 
 		// TODO do analysis and check if   drainerSkipPodFilter = NewPodFiltersIgnoreShortLivedPods(cordonPodFilteringFunc) ?
 		cordonPodFilteringFunc := kubernetes.NewPodFiltersIgnoreCompletedPods(
 			kubernetes.NewPodFiltersWithOptInFirst(
 				kubernetes.PodOrControllerHasAnyOfTheAnnotations(runtimeObjectStoreImpl, consolidatedOptInAnnotations...), kubernetes.NewPodFilters(podFilterCordon...)))
-
-		var h cache.ResourceEventHandler = kubernetes.NewDrainingResourceEventHandler(
-			cs,
-			cordonDrainer,
-			runtimeObjectStoreImpl,
-			eventRecorder,
-			kubernetes.WithLogger(log),
-			kubernetes.WithDrainBuffer(options.drainBuffer),
-			kubernetes.WithSchedulingBackoffDelay(options.schedulingRetryBackoffDelay),
-			kubernetes.WithDurationWithCompletedStatusBeforeReplacement(options.durationBeforeReplacement),
-			kubernetes.WithDrainGroups(options.drainGroupLabelKey),
-			kubernetes.WithGlobalConfigHandler(globalConfig),
-			kubernetes.WithCordonPodFilter(cordonPodFilteringFunc),
-			kubernetes.WithPreprovisioningConfiguration(kubernetes.NodePreprovisioningConfiguration{Timeout: options.preprovisioningTimeout, CheckPeriod: options.preprovisioningCheckPeriod, AllNodesByDefault: options.preprovisioningActivatedByDefault}))
-
-		if options.dryRun {
-			h = cache.FilteringResourceEventHandler{
-				FilterFunc: kubernetes.NewNodeProcessed().Filter,
-				Handler: kubernetes.NewDrainingResourceEventHandler(
-					cs,
-					&kubernetes.NoopCordonDrainer{},
-					runtimeObjectStoreImpl,
-					eventRecorder,
-					kubernetes.WithLogger(log),
-					kubernetes.WithDrainBuffer(options.drainBuffer),
-					kubernetes.WithSchedulingBackoffDelay(options.schedulingRetryBackoffDelay),
-					kubernetes.WithDurationWithCompletedStatusBeforeReplacement(options.durationBeforeReplacement),
-					kubernetes.WithDrainGroups(options.drainGroupLabelKey),
-					kubernetes.WithGlobalConfigHandler(globalConfig)),
-			}
-		}
 
 		if len(options.nodeLabels) > 0 {
 			log.Info("node labels", zap.Any("labels", options.nodeLabels))
@@ -284,26 +237,11 @@ func main() {
 			}
 		}
 
-		var nodeLabelFilter cache.ResourceEventHandler
 		log.Debug("label expression", zap.Any("expr", options.nodeLabelsExpr))
-
 		nodeLabelFilterFunc, err := kubernetes.NewNodeLabelFilter(options.nodeLabelsExpr, log)
 		if err != nil {
 			log.Sugar().Fatalf("Failed to parse node label expression: %v", err)
 		}
-
-		if options.noLegacyNodeHandler {
-			nodeLabelFilter = cache.FilteringResourceEventHandler{FilterFunc: func(obj interface{}) bool {
-				return false
-			}, Handler: nil}
-		} else {
-			nodeLabelFilter = cache.FilteringResourceEventHandler{FilterFunc: nodeLabelFilterFunc, Handler: h}
-		}
-		nodes := kubernetes.NewNodeWatch(ctx, cs, nodeLabelFilter)
-		runtimeObjectStoreImpl.NodesStore = nodes
-
-		cordonLimiter.SetNodeLister(nodes)
-		cordonDrainer.SetRuntimeObjectStore(runtimeObjectStoreImpl)
 
 		filters := filtersDefinitions{
 			cordonPodFilter: cordonPodFilteringFunc,
