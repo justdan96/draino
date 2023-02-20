@@ -182,17 +182,17 @@ func main() {
 
 		zapConfig := zap.NewProductionConfig()
 		zapConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-		log, err := zapConfig.Build()
+		zlog, err := zapConfig.Build()
 		if err != nil {
 			return err
 		}
 		if options.debug {
-			log, err = zap.NewDevelopment()
+			zlog, err = zap.NewDevelopment()
 		}
 		drainoklog.InitializeKlog(options.klogVerbosity)
-		drainoklog.RedirectToLogger(log)
+		drainoklog.RedirectToLogger(zlog)
 
-		defer log.Sync() // nolint:errcheck // no check required on program exit
+		defer zlog.Sync() // nolint:errcheck // no check required on program exit
 
 		go launchTracerAndProfiler()
 
@@ -206,7 +206,7 @@ func main() {
 			PVCManagementEnableIfNoEvictionUrl: options.pvcManagementByDefault,
 		}
 
-		DrainoLegacyMetrics(ctx, options, log)
+		DrainoLegacyMetrics(ctx, options, zlog)
 
 		cs, err2 := GetKubernetesClientSet(&cfg.KubeClientConfig)
 		if err2 != nil {
@@ -219,7 +219,7 @@ func main() {
 		persistentVolumes := kubernetes.NewPersistentVolumeWatch(ctx, cs)
 		persistentVolumeClaims := kubernetes.NewPersistentVolumeClaimWatch(ctx, cs)
 		nodes := kubernetes.NewNodeWatch(ctx, cs)
-		runtimeObjectStoreImpl := &kubernetes.RuntimeObjectStoreImpl{
+		store := &kubernetes.RuntimeObjectStoreImpl{
 			DeploymentStore:            deployments,
 			StatefulSetsStore:          statefulSets,
 			PodsStore:                  pods,
@@ -228,23 +228,23 @@ func main() {
 			NodesStore:                 nodes,
 		}
 
-		filters, err := generateFilters(cs, runtimeObjectStoreImpl, log, options)
+		filtersDef, err := generateFilters(cs, store, zlog, options)
 		if err != nil {
 			return err
 		}
 
-		eventRecorderForDrainerActivities, _ := kubernetes.BuildEventRecorderWithAggregationOnEventTypeAndMessage(zapr.NewLogger(log), cs, options.eventAggregationPeriod, options.logEvents)
+		eventRecorderForDrainerActivities, _ := kubernetes.BuildEventRecorderWithAggregationOnEventTypeAndMessage(zapr.NewLogger(zlog), cs, options.eventAggregationPeriod, options.logEvents)
 		cordonDrainer := kubernetes.NewAPICordonDrainer(cs,
 			eventRecorderForDrainerActivities,
 			kubernetes.MaxGracePeriod(options.minEvictionTimeout),
 			kubernetes.EvictionHeadroom(options.evictionHeadroom),
 			kubernetes.WithSkipDrain(options.skipDrain),
-			kubernetes.WithPodFilter(filters.drainPodFilter),
+			kubernetes.WithPodFilter(filtersDef.drainPodFilter),
 			kubernetes.WithStorageClassesAllowingDeletion(options.storageClassesAllowingVolumeDeletion),
 			kubernetes.WithMaxDrainAttemptsBeforeFail(options.maxDrainAttemptsBeforeFail),
 			kubernetes.WithGlobalConfig(globalConfig),
-			kubernetes.WithAPICordonDrainerLogger(log),
-			kubernetes.WithRuntimeObjectStore(runtimeObjectStoreImpl),
+			kubernetes.WithAPICordonDrainerLogger(zlog),
+			kubernetes.WithRuntimeObjectStore(store),
 		)
 
 		watchers := watchers{
@@ -255,10 +255,209 @@ func main() {
 			pv:         persistentVolumes,
 			pvc:        persistentVolumeClaims,
 		}
-		if err = controllerRuntimeBootstrap(options, cfg, cordonDrainer, filters, runtimeObjectStoreImpl, globalConfig, log, cliHandlers, watchers); err != nil {
-			return fmt.Errorf("failed to bootstrap the controller runtime section: %v", err)
+
+		validationOptions := infraparameters.GetValidateAll()
+		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, false
+		if err := cfg.InfraParam.Validate(validationOptions); err != nil {
+			return fmt.Errorf("infra param validation error: %v\n", err)
 		}
 
+		kubeVersion, err := cs.ServerVersion()
+		if err != nil {
+			return err
+		}
+
+		mgr, logger, _, err := controllerruntime.NewManager(cfg)
+		if err != nil {
+			return fmt.Errorf("error while creating manager: %v\n", err)
+		}
+
+		indexer, err := index.New(globalConfig.Context, mgr.GetClient(), mgr.GetCache(), logger)
+		if err != nil {
+			return fmt.Errorf("error while initializing informer: %v\n", err)
+		}
+
+		globalBlocker := kubernetes.NewGlobalBlocker(logger)
+		for p, f := range options.maxNotReadyNodesFunctions {
+			globalBlocker.AddBlocker("MaxNotReadyNodes:"+p, f(indexer, logger), options.maxNotReadyNodesPeriod)
+		}
+		for p, f := range options.maxPendingPodsFunctions {
+			globalBlocker.AddBlocker("MaxPendingPods:"+p, f(indexer, logger), options.maxPendingPodsPeriod)
+		}
+
+		eventRecorder, _ := kubernetes.BuildEventRecorderWithAggregationOnEventType(logger, cs, options.eventAggregationPeriod, options.excludedPodsPerNodeEstimation, options.logEvents)
+		eventRecorderForDrainRunnerActivities, _ := kubernetes.BuildEventRecorderWithAggregationOnEventTypeAndMessage(logger, cs, options.eventAggregationPeriod, options.logEvents)
+
+		persistor := drainbuffer.NewConfigMapPersistor(cs.CoreV1().ConfigMaps(cfg.InfraParam.Namespace), options.drainBufferConfigMapName, cfg.InfraParam.Namespace)
+		drainBuffer := drainbuffer.NewDrainBuffer(globalConfig.Context, persistor, clock.RealClock{}, mgr.GetLogger(), eventRecorder, indexer, store, options.drainBuffer)
+		// The drain buffer can only be initialized when the manager client cache was started.
+		// Adding a custom runnable to the controller manager will make sure, that the initialization will be started as soon as possible.
+		if err := mgr.Add(getInitDrainBufferRunner(drainBuffer, &logger)); err != nil {
+			logger.Error(err, "cannot setup drain buffer initialization runnable")
+			return err
+		}
+
+		keyGetter := groups.NewGroupKeyFromNodeMetadata(mgr.GetClient(), mgr.GetLogger(), eventRecorder, indexer, store, strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
+
+		staticRetryStrategy := &drain.StaticRetryStrategy{AlertThreashold: 7, Delay: options.schedulingRetryBackoffDelay}
+		retryWall, errRW := drain.NewRetryWall(mgr.GetClient(), mgr.GetLogger(), staticRetryStrategy)
+		if errRW != nil {
+			return errRW
+		}
+
+		pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
+		stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(globalConfig.Context, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{}, filtersDef.drainPodFilter)
+		filterFactory, err := filters.NewFactory(
+			filters.WithLogger(mgr.GetLogger()),
+			filters.WithRetryWall(retryWall),
+			filters.WithRuntimeObjectStore(store),
+			filters.WithCordonPodFilter(filtersDef.cordonPodFilter),
+			filters.WithNodeLabelsFilterFunction(filtersDef.nodeLabelFilter),
+			filters.WithGlobalConfig(globalConfig),
+			filters.WithStabilityPeriodChecker(stabilityPeriodChecker),
+			filters.WithDrainBuffer(drainBuffer),
+			filters.WithGroupKeyGetter(keyGetter),
+			filters.WithGlobalBlocker(globalBlocker),
+			filters.WithEventRecorder(eventRecorder),
+			filters.WithPVCProtector(pvProtector),
+		)
+		if err != nil {
+			logger.Error(err, "failed to configure the filters")
+			return err
+		}
+
+		nodeReplacer := preprocessor.NewNodeReplacer(mgr.GetClient(), mgr.GetLogger())
+		drainRunnerFactory, err := drain_runner.NewFactory(
+			drain_runner.WithKubeClient(mgr.GetClient()),
+			drain_runner.WithClock(&clock.RealClock{}),
+			drain_runner.WithDrainer(cordonDrainer),
+			drain_runner.WithPreprocessors(
+				preprocessor.NewWaitTimePreprocessor(options.waitBeforeDraining),
+				preprocessor.NewNodeReplacementPreProcessor(mgr.GetClient(), options.preprovisioningActivatedByDefault, mgr.GetLogger()),
+				preprocessor.NewPreActivitiesPreProcessor(mgr.GetClient(), indexer, store, mgr.GetLogger(), eventRecorderForDrainRunnerActivities, clock.RealClock{}, options.preActivityDefaultTimeout),
+			),
+			drain_runner.WithRerun(options.groupRunnerPeriod),
+			drain_runner.WithRetryWall(retryWall),
+			drain_runner.WithLogger(mgr.GetLogger()),
+			drain_runner.WithSharedIndexInformer(indexer),
+			drain_runner.WithEventRecorder(eventRecorderForDrainRunnerActivities),
+			drain_runner.WithFilter(filterFactory.BuildCandidateFilter()),
+			drain_runner.WithDrainBuffer(drainBuffer),
+			drain_runner.WithGlobalConfig(globalConfig),
+			drain_runner.WithOptions(options.durationBeforeReplacement),
+			drain_runner.WithNodeReplacer(nodeReplacer),
+		)
+		if err != nil {
+			logger.Error(err, "failed to configure the drain_runner")
+			return err
+		}
+
+		simulationPodFilter := kubernetes.NewPodFilters(filtersDef.drainPodFilter, kubernetes.PodOrControllerHasNoneOfTheAnnotations(store, kubernetes.EvictionAPIURLAnnotationKey))
+		simulationRateLimiter := limit.NewRateLimiter(clock.RealClock{}, cfg.KubeClientConfig.QPS*options.simulationRateLimitingRatio, int(float32(cfg.KubeClientConfig.Burst)*options.simulationRateLimitingRatio))
+		simulator := drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, simulationPodFilter, kubeVersion, eventRecorder, simulationRateLimiter, logger)
+		pdbAnalyser := analyser.NewPDBAnalyser(globalConfig.Context, mgr.GetLogger(), indexer, clock.RealClock{}, options.podWarmupDelayExtension)
+		sorters := candidate_runner.NodeSorters{
+			sorters.CompareNodeAnnotationDrainPriority,
+			sorters.NewConditionComparator(globalConfig.SuppliedConditions),
+			pdbAnalyser.CompareNode,
+		}
+
+		drainCandidateRunnerFactory, err := candidate_runner.NewFactory(
+			candidate_runner.WithKubeClient(mgr.GetClient()),
+			candidate_runner.WithClock(&clock.RealClock{}),
+			candidate_runner.WithRerun(options.groupRunnerPeriod),
+			candidate_runner.WithLogger(mgr.GetLogger()),
+			candidate_runner.WithSharedIndexInformer(indexer),
+			candidate_runner.WithEventRecorder(eventRecorder),
+			candidate_runner.WithMaxSimultaneousCandidates(1), // TODO should we move that to something that can be customized per user
+			candidate_runner.WithFilter(filterFactory.BuildCandidateFilter()),
+			candidate_runner.WithDrainSimulator(simulator),
+			candidate_runner.WithNodeSorters(sorters),
+			candidate_runner.WithDryRun(options.dryRun),
+			candidate_runner.WithRetryWall(retryWall),
+			candidate_runner.WithRateLimiter(limit.NewTypedRateLimiter(&clock.RealClock{}, kubernetes.GetRateLimitConfiguration(globalConfig.SuppliedConditions), options.drainRateLimitQPS, options.drainRateLimitBurst)),
+			candidate_runner.WithGlobalConfig(globalConfig),
+		)
+		if err != nil {
+			logger.Error(err, "failed to configure the candidate_runner")
+			return err
+		}
+
+		groupRegistry := groups.NewGroupRegistry(globalConfig.Context, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory, filtersDef.nodeLabelFilter, store.HasSynced, options.groupRunnerPeriod)
+		if err = groupRegistry.SetupWithManager(mgr); err != nil {
+			logger.Error(err, "failed to setup groupRegistry")
+			return err
+		}
+		groupFromPod := groups.NewGroupFromPod(mgr.GetClient(), mgr.GetLogger(), keyGetter, filtersDef.drainPodFilter, store.HasSynced)
+		if err = groupFromPod.SetupWithManager(mgr); err != nil {
+			logger.Error(err, "failed to setup groupFromPod")
+			return err
+		}
+
+		diagnosticFactory, err := diagnostics.NewFactory(
+			diagnostics.WithKubeClient(mgr.GetClient()),
+			diagnostics.WithClock(&clock.RealClock{}),
+			diagnostics.WithLogger(mgr.GetLogger()),
+			diagnostics.WithFilter(filterFactory.BuildCandidateFilter()),
+			diagnostics.WithDrainSimulator(simulator),
+			diagnostics.WithNodeSorters(sorters),
+			diagnostics.WithRetryWall(retryWall),
+			diagnostics.WithDrainBuffer(drainBuffer),
+			diagnostics.WithGlobalConfig(globalConfig),
+			diagnostics.WithKeyGetter(keyGetter),
+			diagnostics.WithStabilityPeriodChecker(stabilityPeriodChecker),
+		)
+		if err != nil {
+			logger.Error(err, "failed to configure the diagnostics")
+			return err
+		}
+
+		nodeDiagnostician := diagnosticFactory.BuildDiagnostician()
+		diagnostics := diagnostics.NewDiagnosticsController(globalConfig.Context, mgr.GetClient(), mgr.GetLogger(), eventRecorder, []diagnostics.Diagnostician{nodeDiagnostician}, store.HasSynced)
+		if err = diagnostics.SetupWithManager(mgr); err != nil {
+			logger.Error(err, "failed to setup diagnostics")
+			return err
+		}
+
+		if errCli := cliHandlers.Initialize(logger, groupRegistry, drainCandidateRunnerFactory.BuildCandidateInfo(), drainRunnerFactory.BuildRunner(), nodeDiagnostician); errCli != nil {
+			logger.Error(errCli, "Failed to initialize CLIHandlers")
+			return errCli
+		}
+
+		scopeObserver := observability.NewScopeObserver(cs, globalConfig, store, options.scopeAnalysisPeriod, filtersDef.cordonPodFilter,
+			kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.optInPodAnnotations...),
+			kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.cordonProtectedPodAnnotations...),
+			filtersDef.nodeLabelFilter, zlog, retryWall, keyGetter, groupRegistry)
+
+		if options.resetScopeLabel == true {
+			err = mgr.Add(&RunOnce{fn: func(context.Context) error { scopeObserver.Reset(); return nil }})
+			if err != nil {
+				logger.Error(err, "failed to attach scope observer cleanup")
+				return err
+			}
+		}
+
+		mgr.Add(&RunOnce{fn: func(ctx context.Context) error {
+			return kubernetes.Await(ctx, watchers.nodes, watchers.pods, watchers.sts, watchers.deployment, watchers.pv, watchers.pvc)
+		}})
+
+		if err := mgr.Add(globalBlocker); err != nil {
+			logger.Error(err, "failed to setup global blocker with controller runtime")
+			return err
+		}
+
+		if err := mgr.Add(scopeObserver); err != nil {
+			logger.Error(err, "failed to setup scope observer with controller runtime")
+			return err
+		}
+
+		logger.Info("Starting manager")
+		if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+			logger.Error(err, "Controller Manager did exit with error")
+			return err
+		}
+
+		logger.Info("Manager finished without error")
 		return nil
 	}
 
@@ -350,216 +549,4 @@ func getInitDrainBufferRunner(drainBuffer drainbuffer.DrainBuffer, logger *logr.
 		period: time.Second,
 		fn:     func(ctx context.Context) error { return drainBuffer.Initialize(ctx) },
 	}
-}
-
-// controllerRuntimeBootstrap This function is not called, it is just there to prepare the ground in terms of dependencies for next step where we will include ControllerRuntime library
-func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config, drainer kubernetes.Drainer, filtersDef filtersDefinitions, store kubernetes.RuntimeObjectStore, globalConfig kubernetes.GlobalConfig, zlog *zap.Logger, cliHandlers *cli.CLIHandlers, watchers watchers) error {
-	validationOptions := infraparameters.GetValidateAll()
-	validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, false
-	if err := cfg.InfraParam.Validate(validationOptions); err != nil {
-		return fmt.Errorf("infra param validation error: %v\n", err)
-	}
-
-	cs, err := GetKubernetesClientSet(&cfg.KubeClientConfig)
-	if err != nil {
-		return err
-	}
-
-	kubeVersion, err := cs.ServerVersion()
-	if err != nil {
-		return err
-	}
-
-	mgr, logger, _, err := controllerruntime.NewManager(cfg)
-	if err != nil {
-		return fmt.Errorf("error while creating manager: %v\n", err)
-	}
-
-	indexer, err := index.New(globalConfig.Context, mgr.GetClient(), mgr.GetCache(), logger)
-	if err != nil {
-		return fmt.Errorf("error while initializing informer: %v\n", err)
-	}
-
-	globalBlocker := kubernetes.NewGlobalBlocker(logger)
-	for p, f := range options.maxNotReadyNodesFunctions {
-		globalBlocker.AddBlocker("MaxNotReadyNodes:"+p, f(indexer, logger), options.maxNotReadyNodesPeriod)
-	}
-	for p, f := range options.maxPendingPodsFunctions {
-		globalBlocker.AddBlocker("MaxPendingPods:"+p, f(indexer, logger), options.maxPendingPodsPeriod)
-	}
-
-	eventRecorder, _ := kubernetes.BuildEventRecorderWithAggregationOnEventType(logger, cs, options.eventAggregationPeriod, options.excludedPodsPerNodeEstimation, options.logEvents)
-	eventRecorderForDrainRunnerActivities, _ := kubernetes.BuildEventRecorderWithAggregationOnEventTypeAndMessage(logger, cs, options.eventAggregationPeriod, options.logEvents)
-
-	persistor := drainbuffer.NewConfigMapPersistor(cs.CoreV1().ConfigMaps(cfg.InfraParam.Namespace), options.drainBufferConfigMapName, cfg.InfraParam.Namespace)
-	drainBuffer := drainbuffer.NewDrainBuffer(globalConfig.Context, persistor, clock.RealClock{}, mgr.GetLogger(), eventRecorder, indexer, store, options.drainBuffer)
-	// The drain buffer can only be initialized when the manager client cache was started.
-	// Adding a custom runnable to the controller manager will make sure, that the initialization will be started as soon as possible.
-	if err := mgr.Add(getInitDrainBufferRunner(drainBuffer, &logger)); err != nil {
-		logger.Error(err, "cannot setup drain buffer initialization runnable")
-		return err
-	}
-
-	keyGetter := groups.NewGroupKeyFromNodeMetadata(mgr.GetClient(), mgr.GetLogger(), eventRecorder, indexer, store, strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
-
-	staticRetryStrategy := &drain.StaticRetryStrategy{AlertThreashold: 7, Delay: options.schedulingRetryBackoffDelay}
-	retryWall, errRW := drain.NewRetryWall(mgr.GetClient(), mgr.GetLogger(), staticRetryStrategy)
-	if errRW != nil {
-		return errRW
-	}
-
-	pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
-	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(globalConfig.Context, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{}, filtersDef.drainPodFilter)
-	filterFactory, err := filters.NewFactory(
-		filters.WithLogger(mgr.GetLogger()),
-		filters.WithRetryWall(retryWall),
-		filters.WithRuntimeObjectStore(store),
-		filters.WithCordonPodFilter(filtersDef.cordonPodFilter),
-		filters.WithNodeLabelsFilterFunction(filtersDef.nodeLabelFilter),
-		filters.WithGlobalConfig(globalConfig),
-		filters.WithStabilityPeriodChecker(stabilityPeriodChecker),
-		filters.WithDrainBuffer(drainBuffer),
-		filters.WithGroupKeyGetter(keyGetter),
-		filters.WithGlobalBlocker(globalBlocker),
-		filters.WithEventRecorder(eventRecorder),
-		filters.WithPVCProtector(pvProtector),
-	)
-	if err != nil {
-		logger.Error(err, "failed to configure the filters")
-		return err
-	}
-
-	nodeReplacer := preprocessor.NewNodeReplacer(mgr.GetClient(), mgr.GetLogger())
-	drainRunnerFactory, err := drain_runner.NewFactory(
-		drain_runner.WithKubeClient(mgr.GetClient()),
-		drain_runner.WithClock(&clock.RealClock{}),
-		drain_runner.WithDrainer(drainer),
-		drain_runner.WithPreprocessors(
-			preprocessor.NewWaitTimePreprocessor(options.waitBeforeDraining),
-			preprocessor.NewNodeReplacementPreProcessor(mgr.GetClient(), options.preprovisioningActivatedByDefault, mgr.GetLogger()),
-			preprocessor.NewPreActivitiesPreProcessor(mgr.GetClient(), indexer, store, mgr.GetLogger(), eventRecorderForDrainRunnerActivities, clock.RealClock{}, options.preActivityDefaultTimeout),
-		),
-		drain_runner.WithRerun(options.groupRunnerPeriod),
-		drain_runner.WithRetryWall(retryWall),
-		drain_runner.WithLogger(mgr.GetLogger()),
-		drain_runner.WithSharedIndexInformer(indexer),
-		drain_runner.WithEventRecorder(eventRecorderForDrainRunnerActivities),
-		drain_runner.WithFilter(filterFactory.BuildCandidateFilter()),
-		drain_runner.WithDrainBuffer(drainBuffer),
-		drain_runner.WithGlobalConfig(globalConfig),
-		drain_runner.WithOptions(options.durationBeforeReplacement),
-		drain_runner.WithNodeReplacer(nodeReplacer),
-	)
-	if err != nil {
-		logger.Error(err, "failed to configure the drain_runner")
-		return err
-	}
-
-	simulationPodFilter := kubernetes.NewPodFilters(filtersDef.drainPodFilter, kubernetes.PodOrControllerHasNoneOfTheAnnotations(store, kubernetes.EvictionAPIURLAnnotationKey))
-	simulationRateLimiter := limit.NewRateLimiter(clock.RealClock{}, cfg.KubeClientConfig.QPS*options.simulationRateLimitingRatio, int(float32(cfg.KubeClientConfig.Burst)*options.simulationRateLimitingRatio))
-	simulator := drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, simulationPodFilter, kubeVersion, eventRecorder, simulationRateLimiter, logger)
-	pdbAnalyser := analyser.NewPDBAnalyser(globalConfig.Context, mgr.GetLogger(), indexer, clock.RealClock{}, options.podWarmupDelayExtension)
-	sorters := candidate_runner.NodeSorters{
-		sorters.CompareNodeAnnotationDrainPriority,
-		sorters.NewConditionComparator(globalConfig.SuppliedConditions),
-		pdbAnalyser.CompareNode,
-	}
-
-	drainCandidateRunnerFactory, err := candidate_runner.NewFactory(
-		candidate_runner.WithKubeClient(mgr.GetClient()),
-		candidate_runner.WithClock(&clock.RealClock{}),
-		candidate_runner.WithRerun(options.groupRunnerPeriod),
-		candidate_runner.WithLogger(mgr.GetLogger()),
-		candidate_runner.WithSharedIndexInformer(indexer),
-		candidate_runner.WithEventRecorder(eventRecorder),
-		candidate_runner.WithMaxSimultaneousCandidates(1), // TODO should we move that to something that can be customized per user
-		candidate_runner.WithFilter(filterFactory.BuildCandidateFilter()),
-		candidate_runner.WithDrainSimulator(simulator),
-		candidate_runner.WithNodeSorters(sorters),
-		candidate_runner.WithDryRun(options.dryRun),
-		candidate_runner.WithRetryWall(retryWall),
-		candidate_runner.WithRateLimiter(limit.NewTypedRateLimiter(&clock.RealClock{}, kubernetes.GetRateLimitConfiguration(globalConfig.SuppliedConditions), options.drainRateLimitQPS, options.drainRateLimitBurst)),
-		candidate_runner.WithGlobalConfig(globalConfig),
-	)
-	if err != nil {
-		logger.Error(err, "failed to configure the candidate_runner")
-		return err
-	}
-
-	groupRegistry := groups.NewGroupRegistry(globalConfig.Context, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory, filtersDef.nodeLabelFilter, store.HasSynced, options.groupRunnerPeriod)
-	if err = groupRegistry.SetupWithManager(mgr); err != nil {
-		logger.Error(err, "failed to setup groupRegistry")
-		return err
-	}
-	groupFromPod := groups.NewGroupFromPod(mgr.GetClient(), mgr.GetLogger(), keyGetter, filtersDef.drainPodFilter, store.HasSynced)
-	if err = groupFromPod.SetupWithManager(mgr); err != nil {
-		logger.Error(err, "failed to setup groupFromPod")
-		return err
-	}
-
-	diagnosticFactory, err := diagnostics.NewFactory(
-		diagnostics.WithKubeClient(mgr.GetClient()),
-		diagnostics.WithClock(&clock.RealClock{}),
-		diagnostics.WithLogger(mgr.GetLogger()),
-		diagnostics.WithFilter(filterFactory.BuildCandidateFilter()),
-		diagnostics.WithDrainSimulator(simulator),
-		diagnostics.WithNodeSorters(sorters),
-		diagnostics.WithRetryWall(retryWall),
-		diagnostics.WithDrainBuffer(drainBuffer),
-		diagnostics.WithGlobalConfig(globalConfig),
-		diagnostics.WithKeyGetter(keyGetter),
-		diagnostics.WithStabilityPeriodChecker(stabilityPeriodChecker),
-	)
-	if err != nil {
-		logger.Error(err, "failed to configure the diagnostics")
-		return err
-	}
-
-	nodeDiagnostician := diagnosticFactory.BuildDiagnostician()
-	diagnostics := diagnostics.NewDiagnosticsController(globalConfig.Context, mgr.GetClient(), mgr.GetLogger(), eventRecorder, []diagnostics.Diagnostician{nodeDiagnostician}, store.HasSynced)
-	if err = diagnostics.SetupWithManager(mgr); err != nil {
-		logger.Error(err, "failed to setup diagnostics")
-		return err
-	}
-
-	if errCli := cliHandlers.Initialize(logger, groupRegistry, drainCandidateRunnerFactory.BuildCandidateInfo(), drainRunnerFactory.BuildRunner(), nodeDiagnostician); errCli != nil {
-		logger.Error(errCli, "Failed to initialize CLIHandlers")
-		return errCli
-	}
-
-	scopeObserver := observability.NewScopeObserver(cs, globalConfig, store, options.scopeAnalysisPeriod, filtersDef.cordonPodFilter,
-		kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.optInPodAnnotations...),
-		kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, options.cordonProtectedPodAnnotations...),
-		filtersDef.nodeLabelFilter, zlog, retryWall, keyGetter, groupRegistry)
-
-	if options.resetScopeLabel == true {
-		err = mgr.Add(&RunOnce{fn: func(context.Context) error { scopeObserver.Reset(); return nil }})
-		if err != nil {
-			logger.Error(err, "failed to attach scope observer cleanup")
-			return err
-		}
-	}
-
-	mgr.Add(&RunOnce{fn: func(ctx context.Context) error {
-		return kubernetes.Await(ctx, watchers.nodes, watchers.pods, watchers.sts, watchers.deployment, watchers.pv, watchers.pvc)
-	}})
-
-	if err := mgr.Add(globalBlocker); err != nil {
-		logger.Error(err, "failed to setup global blocker with controller runtime")
-		return err
-	}
-
-	if err := mgr.Add(scopeObserver); err != nil {
-		logger.Error(err, "failed to setup scope observer with controller runtime")
-		return err
-	}
-
-	logger.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		logger.Error(err, "Controller Manager did exit with error")
-		return err
-	}
-
-	logger.Info("Manager finished without error")
-	return nil
 }
