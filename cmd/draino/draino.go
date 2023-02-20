@@ -53,10 +53,7 @@ import (
 	"github.com/planetlabs/draino/internal/observability"
 	protector "github.com/planetlabs/draino/internal/protector"
 
-	core "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	client "k8s.io/client-go/kubernetes"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -363,34 +360,6 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		return fmt.Errorf("infra param validation error: %v\n", err)
 	}
 
-	cfg.ManagerOptions.Scheme = runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(cfg.ManagerOptions.Scheme); err != nil {
-		return fmt.Errorf("error while adding client-go scheme: %v\n", err)
-	}
-	if err := core.AddToScheme(cfg.ManagerOptions.Scheme); err != nil {
-		return fmt.Errorf("error while adding v1 scheme: %v\n", err)
-	}
-
-	mgr, logger, _, err := controllerruntime.NewManager(cfg)
-	if err != nil {
-		return fmt.Errorf("error while creating manager: %v\n", err)
-	}
-
-	ctx := context.Background()
-	indexer, err := index.New(ctx, mgr.GetClient(), mgr.GetCache(), logger)
-	if err != nil {
-		return fmt.Errorf("error while initializing informer: %v\n", err)
-	}
-
-	staticRetryStrategy := &drain.StaticRetryStrategy{
-		AlertThreashold: 7,
-		Delay:           options.schedulingRetryBackoffDelay,
-	}
-	retryWall, errRW := drain.NewRetryWall(mgr.GetClient(), mgr.GetLogger(), staticRetryStrategy)
-	if errRW != nil {
-		return errRW
-	}
-
 	cs, err := GetKubernetesClientSet(&cfg.KubeClientConfig)
 	if err != nil {
 		return err
@@ -399,6 +368,16 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	kubeVersion, err := cs.ServerVersion()
 	if err != nil {
 		return err
+	}
+
+	mgr, logger, _, err := controllerruntime.NewManager(cfg)
+	if err != nil {
+		return fmt.Errorf("error while creating manager: %v\n", err)
+	}
+
+	indexer, err := index.New(globalConfig.Context, mgr.GetClient(), mgr.GetCache(), logger)
+	if err != nil {
+		return fmt.Errorf("error while initializing informer: %v\n", err)
 	}
 
 	globalBlocker := kubernetes.NewGlobalBlocker(logger)
@@ -412,11 +391,8 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	eventRecorder, _ := kubernetes.BuildEventRecorderWithAggregationOnEventType(logger, cs, options.eventAggregationPeriod, options.excludedPodsPerNodeEstimation, options.logEvents)
 	eventRecorderForDrainRunnerActivities, _ := kubernetes.BuildEventRecorderWithAggregationOnEventTypeAndMessage(logger, cs, options.eventAggregationPeriod, options.logEvents)
 
-	pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
-	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(ctx, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{}, filtersDef.drainPodFilter)
-
 	persistor := drainbuffer.NewConfigMapPersistor(cs.CoreV1().ConfigMaps(cfg.InfraParam.Namespace), options.drainBufferConfigMapName, cfg.InfraParam.Namespace)
-	drainBuffer := drainbuffer.NewDrainBuffer(ctx, persistor, clock.RealClock{}, mgr.GetLogger(), eventRecorder, indexer, store, options.drainBuffer)
+	drainBuffer := drainbuffer.NewDrainBuffer(globalConfig.Context, persistor, clock.RealClock{}, mgr.GetLogger(), eventRecorder, indexer, store, options.drainBuffer)
 	// The drain buffer can only be initialized when the manager client cache was started.
 	// Adding a custom runnable to the controller manager will make sure, that the initialization will be started as soon as possible.
 	if err := mgr.Add(getInitDrainBufferRunner(drainBuffer, &logger)); err != nil {
@@ -426,6 +402,14 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 
 	keyGetter := groups.NewGroupKeyFromNodeMetadata(mgr.GetClient(), mgr.GetLogger(), eventRecorder, indexer, store, strings.Split(options.drainGroupLabelKey, ","), []string{kubernetes.DrainGroupAnnotation}, kubernetes.DrainGroupOverrideAnnotation)
 
+	staticRetryStrategy := &drain.StaticRetryStrategy{AlertThreashold: 7, Delay: options.schedulingRetryBackoffDelay}
+	retryWall, errRW := drain.NewRetryWall(mgr.GetClient(), mgr.GetLogger(), staticRetryStrategy)
+	if errRW != nil {
+		return errRW
+	}
+
+	pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
+	stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(globalConfig.Context, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{}, filtersDef.drainPodFilter)
 	filterFactory, err := filters.NewFactory(
 		filters.WithLogger(mgr.GetLogger()),
 		filters.WithRetryWall(retryWall),
@@ -444,8 +428,6 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		logger.Error(err, "failed to configure the filters")
 		return err
 	}
-
-	pdbAnalyser := analyser.NewPDBAnalyser(ctx, mgr.GetLogger(), indexer, clock.RealClock{}, options.podWarmupDelayExtension)
 
 	nodeReplacer := preprocessor.NewNodeReplacer(mgr.GetClient(), mgr.GetLogger())
 	drainRunnerFactory, err := drain_runner.NewFactory(
@@ -476,6 +458,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	simulationPodFilter := kubernetes.NewPodFilters(filtersDef.drainPodFilter, kubernetes.PodOrControllerHasNoneOfTheAnnotations(store, kubernetes.EvictionAPIURLAnnotationKey))
 	simulationRateLimiter := limit.NewRateLimiter(clock.RealClock{}, cfg.KubeClientConfig.QPS*options.simulationRateLimitingRatio, int(float32(cfg.KubeClientConfig.Burst)*options.simulationRateLimitingRatio))
 	simulator := drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, simulationPodFilter, kubeVersion, eventRecorder, simulationRateLimiter, logger)
+	pdbAnalyser := analyser.NewPDBAnalyser(globalConfig.Context, mgr.GetLogger(), indexer, clock.RealClock{}, options.podWarmupDelayExtension)
 	sorters := candidate_runner.NodeSorters{
 		sorters.CompareNodeAnnotationDrainPriority,
 		sorters.NewConditionComparator(globalConfig.SuppliedConditions),
@@ -503,7 +486,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		return err
 	}
 
-	groupRegistry := groups.NewGroupRegistry(ctx, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory, filtersDef.nodeLabelFilter, store.HasSynced, options.groupRunnerPeriod)
+	groupRegistry := groups.NewGroupRegistry(globalConfig.Context, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory, filtersDef.nodeLabelFilter, store.HasSynced, options.groupRunnerPeriod)
 	if err = groupRegistry.SetupWithManager(mgr); err != nil {
 		logger.Error(err, "failed to setup groupRegistry")
 		return err
@@ -533,7 +516,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	}
 
 	nodeDiagnostician := diagnosticFactory.BuildDiagnostician()
-	diagnostics := diagnostics.NewDiagnosticsController(ctx, mgr.GetClient(), mgr.GetLogger(), eventRecorder, []diagnostics.Diagnostician{nodeDiagnostician}, store.HasSynced)
+	diagnostics := diagnostics.NewDiagnosticsController(globalConfig.Context, mgr.GetClient(), mgr.GetLogger(), eventRecorder, []diagnostics.Diagnostician{nodeDiagnostician}, store.HasSynced)
 	if err = diagnostics.SetupWithManager(mgr); err != nil {
 		logger.Error(err, "failed to setup diagnostics")
 		return err
