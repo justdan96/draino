@@ -270,6 +270,7 @@ func main() {
 			kubernetes.WithGlobalConfig(globalConfig),
 			kubernetes.WithAPICordonDrainerLogger(zlog),
 			kubernetes.WithRuntimeObjectStore(store),
+			kubernetes.WithContainerRuntimeClient(mgr.GetClient()),
 		)
 
 		indexer, err := index.New(ctx, mgr.GetClient(), mgr.GetCache(), logger)
