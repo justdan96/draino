@@ -34,7 +34,6 @@ import (
 	httptrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
-	"github.com/julienschmidt/httprouter"
 	"github.com/planetlabs/draino/internal/candidate_runner"
 	"github.com/planetlabs/draino/internal/candidate_runner/filters"
 	"github.com/planetlabs/draino/internal/candidate_runner/sorters"
@@ -206,11 +205,30 @@ func main() {
 			PVCManagementEnableIfNoEvictionUrl: options.pvcManagementByDefault,
 		}
 
-		DrainoLegacyMetrics(ctx, options, zlog)
+		validationOptions := infraparameters.GetValidateAll()
+		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, false
+		if err := cfg.InfraParam.Validate(validationOptions); err != nil {
+			return fmt.Errorf("infra param validation error: %v\n", err)
+		}
+
+		mgr, logger, _, err := controllerruntime.NewManager(cfg)
+		if err != nil {
+			return fmt.Errorf("error while creating manager: %v\n", err)
+		}
+
+		httpRunner := DrainoLegacyMetrics(ctx, options, logger)
+		if err := mgr.Add(httpRunner); err != nil {
+			return fmt.Errorf("Failed to add metrics http runner to manager: %v", err)
+		}
 
 		cs, err2 := GetKubernetesClientSet(&cfg.KubeClientConfig)
 		if err2 != nil {
 			return err2
+		}
+
+		kubeVersion, err := cs.ServerVersion()
+		if err != nil {
+			return err
 		}
 
 		pods := kubernetes.NewPodWatch(ctx, cs)
@@ -254,22 +272,6 @@ func main() {
 			deployment: deployments,
 			pv:         persistentVolumes,
 			pvc:        persistentVolumeClaims,
-		}
-
-		validationOptions := infraparameters.GetValidateAll()
-		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, false
-		if err := cfg.InfraParam.Validate(validationOptions); err != nil {
-			return fmt.Errorf("infra param validation error: %v\n", err)
-		}
-
-		kubeVersion, err := cs.ServerVersion()
-		if err != nil {
-			return err
-		}
-
-		mgr, logger, _, err := controllerruntime.NewManager(cfg)
-		if err != nil {
-			return fmt.Errorf("error while creating manager: %v\n", err)
 		}
 
 		indexer, err := index.New(globalConfig.Context, mgr.GetClient(), mgr.GetCache(), logger)
@@ -493,37 +495,6 @@ func GetKubernetesClientSet(config *kubeclient.Config) (*client.Clientset, error
 		return nil, fmt.Errorf("failed create Kubernetes client: %v", err)
 	}
 	return cs, nil
-}
-
-type httpRunner struct {
-	address string
-	logger  *zap.Logger
-	h       map[string]http.Handler
-}
-
-func (r *httpRunner) Start(ctx context.Context) {
-	r.Run(ctx.Done())
-}
-
-func (r *httpRunner) Run(stop <-chan struct{}) {
-	rt := httprouter.New()
-	for path, handler := range r.h {
-		rt.Handler("GET", path, handler)
-	}
-
-	s := &http.Server{Addr: r.address, Handler: rt}
-	ctx, cancel := context.WithTimeout(context.Background(), 0*time.Second)
-	go func() {
-		<-stop
-		if err := s.Shutdown(ctx); err != nil {
-			r.logger.Error("Failed to shutdown httpRunner", zap.Error(err))
-			return
-		}
-	}()
-	if err := s.ListenAndServe(); err != nil {
-		r.logger.Error("Failed to ListenAndServe httpRunner", zap.Error(err))
-	}
-	cancel()
 }
 
 // TODO should we put this in globalConfig ?
