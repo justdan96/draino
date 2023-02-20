@@ -265,15 +265,6 @@ func main() {
 			kubernetes.WithRuntimeObjectStore(store),
 		)
 
-		watchers := watchers{
-			nodes:      nodes,
-			pods:       pods,
-			sts:        statefulSets,
-			deployment: deployments,
-			pv:         persistentVolumes,
-			pvc:        persistentVolumeClaims,
-		}
-
 		indexer, err := index.New(globalConfig.Context, mgr.GetClient(), mgr.GetCache(), logger)
 		if err != nil {
 			return fmt.Errorf("error while initializing informer: %v\n", err)
@@ -440,7 +431,7 @@ func main() {
 		}
 
 		mgr.Add(&RunOnce{fn: func(ctx context.Context) error {
-			return kubernetes.Await(ctx, watchers.nodes, watchers.pods, watchers.sts, watchers.deployment, watchers.pv, watchers.pvc)
+			return kubernetes.Await(ctx, nodes, pods, statefulSets, deployments, persistentVolumes, persistentVolumeClaims)
 		}})
 
 		if err := mgr.Add(globalBlocker); err != nil {
@@ -503,14 +494,6 @@ type filtersDefinitions struct {
 	drainPodFilter  kubernetes.PodFilterFunc
 
 	nodeLabelFilter kubernetes.NodeLabelFilterFunc
-}
-type watchers struct {
-	nodes      *kubernetes.NodeWatch
-	pods       *kubernetes.PodWatch
-	sts        *kubernetes.StatefulSetWatch
-	deployment *kubernetes.DeploymentWatch
-	pv         *kubernetes.PersistentVolumeWatch
-	pvc        *kubernetes.PersistentVolumeClaimWatch
 }
 
 // getInitDrainBufferRunner returns a Runnable that is responsible for initializing the drain buffer
