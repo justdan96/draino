@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -217,6 +218,8 @@ func (o *Options) Validate() error {
 	if len(o.conditions) == 0 {
 		return fmt.Errorf("no condition defined")
 	}
+	// Sanitize user input
+	sort.Strings(o.conditions)
 	if o.suppliedConditions, err = kubernetes.ParseConditions(o.conditions); err != nil {
 		return fmt.Errorf("one of the conditions is not correctly formatted: %#v", err)
 	}

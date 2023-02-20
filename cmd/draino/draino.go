@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
-	"sort"
 	"strings"
 	"time"
 
@@ -69,6 +68,96 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+func generateFilters(cs *client.Clientset, store kubernetes.RuntimeObjectStore, log *zap.Logger, options *Options) (filtersDefinitions, error) {
+	pf := []kubernetes.PodFilterFunc{kubernetes.MirrorPodFilter}
+	if !options.evictLocalStoragePods {
+		pf = append(pf, kubernetes.LocalStoragePodFilter)
+	}
+
+	apiResources, err := kubernetes.GetAPIResourcesForGVK(cs, options.doNotEvictPodControlledBy, log)
+	if err != nil {
+		return filtersDefinitions{}, fmt.Errorf("failed to get resources for controlby filtering for eviction: %v", err)
+	}
+	if len(apiResources) > 0 {
+		for _, apiResource := range apiResources {
+			if apiResource == nil {
+				log.Info("Filtering pod that are uncontrolled for eviction")
+			} else {
+				log.Info("Filtering pods controlled by apiresource for eviction", zap.Any("apiresource", *apiResource))
+			}
+		}
+		pf = append(pf, kubernetes.NewPodControlledByFilter(apiResources))
+	}
+	systemKnownAnnotations := []string{
+		// https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md#what-types-of-pods-can-prevent-ca-from-removing-a-node
+		"cluster-autoscaler.kubernetes.io/safe-to-evict=false",
+	}
+	pf = append(pf, kubernetes.UnprotectedPodFilter(store, false, append(systemKnownAnnotations, options.protectedPodAnnotations...)...))
+
+	// Cordon Filtering
+	podFilterCordon := []kubernetes.PodFilterFunc{}
+	// TODO do we still need it?
+	// if !options.cordonLocalStoragePods {
+	// podFilterCordon = append(podFilterCordon, kubernetes.LocalStoragePodFilter)
+	// }
+	apiResourcesCordon, err := kubernetes.GetAPIResourcesForGVK(cs, options.doNotCordonPodControlledBy, log)
+	if err != nil {
+		return filtersDefinitions{}, fmt.Errorf("failed to get resources for 'controlledBy' filtering for cordon: %v", err)
+	}
+	if len(apiResourcesCordon) > 0 {
+		for _, apiResource := range apiResourcesCordon {
+			if apiResource == nil {
+				log.Info("Filtering pods that are uncontrolled for cordon")
+			} else {
+				log.Info("Filtering pods controlled by apiresource for cordon", zap.Any("apiresource", *apiResource))
+			}
+		}
+		podFilterCordon = append(podFilterCordon, kubernetes.NewPodControlledByFilter(apiResourcesCordon))
+	}
+	podFilterCordon = append(podFilterCordon, kubernetes.UnprotectedPodFilter(store, true, options.cordonProtectedPodAnnotations...))
+
+	// To maintain compatibility with draino v1 version we have to exclude pods from STS running on node without local-storage
+	if options.excludeStatefulSetOnNodeWithoutStorage {
+		podFilterCordon = append(podFilterCordon, kubernetes.NewPodFiltersNoStatefulSetOnNodeWithoutDisk(store))
+	}
+
+	consolidatedOptInAnnotations := append(options.optInPodAnnotations, options.shortLivedPodAnnotations...)
+	drainerSkipPodFilter := kubernetes.NewPodFiltersIgnoreCompletedPods(
+		kubernetes.NewPodFiltersIgnoreShortLivedPods(
+			kubernetes.NewPodFiltersWithOptInFirst(kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, consolidatedOptInAnnotations...), kubernetes.NewPodFilters(pf...)),
+			store, options.shortLivedPodAnnotations...))
+
+	// TODO do analysis and check if   drainerSkipPodFilter = NewPodFiltersIgnoreShortLivedPods(cordonPodFilteringFunc) ?
+	cordonPodFilteringFunc := kubernetes.NewPodFiltersIgnoreCompletedPods(
+		kubernetes.NewPodFiltersWithOptInFirst(
+			kubernetes.PodOrControllerHasAnyOfTheAnnotations(store, consolidatedOptInAnnotations...), kubernetes.NewPodFilters(podFilterCordon...)))
+
+	// Node filtering
+	if len(options.nodeLabels) > 0 {
+		log.Info("node labels", zap.Any("labels", options.nodeLabels))
+		if options.nodeLabelsExpr != "" {
+			return filtersDefinitions{}, fmt.Errorf("nodeLabels and NodeLabelsExpr cannot both be set")
+		}
+		if ptrStr, err := kubernetes.ConvertLabelsToFilterExpr(options.nodeLabels); err != nil {
+			return filtersDefinitions{}, err
+		} else {
+			options.nodeLabelsExpr = *ptrStr
+		}
+	}
+	log.Debug("label expression", zap.Any("expr", options.nodeLabelsExpr))
+	nodeLabelFilterFunc, err := kubernetes.NewNodeLabelFilter(options.nodeLabelsExpr, log)
+	if err != nil {
+		return filtersDefinitions{}, fmt.Errorf("Failed to parse node label expression: %v", err)
+	}
+
+	return filtersDefinitions{
+		// TODO renmae
+		cordonPodFilter: cordonPodFilteringFunc,
+		drainPodFilter:  drainerSkipPodFilter,
+		nodeLabelFilter: nodeLabelFilterFunc,
+	}, nil
+}
+
 func main() {
 	// Read application flags
 	cfg, fs := controllerruntime.ConfigFromFlags(true, false)
@@ -113,6 +202,12 @@ func main() {
 		// use a Go context so we can tell the leaderelection and other pieces when we want to step down
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		globalConfig := kubernetes.GlobalConfig{
+			Context:                            ctx,
+			ConfigName:                         options.configName,
+			SuppliedConditions:                 options.suppliedConditions,
+			PVCManagementEnableIfNoEvictionUrl: options.pvcManagementByDefault,
+		}
 
 		DrainoLegacyMetrics(ctx, options, log)
 
@@ -136,83 +231,18 @@ func main() {
 			NodesStore:                 nodes,
 		}
 
-		// Sanitize user input
-		sort.Strings(options.conditions)
-
-		// Eviction Filtering
-		pf := []kubernetes.PodFilterFunc{kubernetes.MirrorPodFilter}
-		if !options.evictLocalStoragePods {
-			pf = append(pf, kubernetes.LocalStoragePodFilter)
-		}
-
-		apiResources, err := kubernetes.GetAPIResourcesForGVK(cs, options.doNotEvictPodControlledBy, log)
+		filters, err := generateFilters(cs, runtimeObjectStoreImpl, log, options)
 		if err != nil {
-			return fmt.Errorf("failed to get resources for controlby filtering for eviction: %v", err)
-		}
-		if len(apiResources) > 0 {
-			for _, apiResource := range apiResources {
-				if apiResource == nil {
-					log.Info("Filtering pod that are uncontrolled for eviction")
-				} else {
-					log.Info("Filtering pods controlled by apiresource for eviction", zap.Any("apiresource", *apiResource))
-				}
-			}
-			pf = append(pf, kubernetes.NewPodControlledByFilter(apiResources))
-		}
-		systemKnownAnnotations := []string{
-			// https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md#what-types-of-pods-can-prevent-ca-from-removing-a-node
-			"cluster-autoscaler.kubernetes.io/safe-to-evict=false",
-		}
-		pf = append(pf, kubernetes.UnprotectedPodFilter(runtimeObjectStoreImpl, false, append(systemKnownAnnotations, options.protectedPodAnnotations...)...))
-
-		// Cordon Filtering
-		podFilterCordon := []kubernetes.PodFilterFunc{}
-		if !options.cordonLocalStoragePods {
-			podFilterCordon = append(podFilterCordon, kubernetes.LocalStoragePodFilter)
-		}
-		apiResourcesCordon, err := kubernetes.GetAPIResourcesForGVK(cs, options.doNotCordonPodControlledBy, log)
-		if err != nil {
-			return fmt.Errorf("failed to get resources for 'controlledBy' filtering for cordon: %v", err)
-		}
-		if len(apiResourcesCordon) > 0 {
-			for _, apiResource := range apiResourcesCordon {
-				if apiResource == nil {
-					log.Info("Filtering pods that are uncontrolled for cordon")
-				} else {
-					log.Info("Filtering pods controlled by apiresource for cordon", zap.Any("apiresource", *apiResource))
-				}
-			}
-			podFilterCordon = append(podFilterCordon, kubernetes.NewPodControlledByFilter(apiResourcesCordon))
-		}
-		podFilterCordon = append(podFilterCordon, kubernetes.UnprotectedPodFilter(runtimeObjectStoreImpl, true, options.cordonProtectedPodAnnotations...))
-
-		// To maintain compatibility with draino v1 version we have to exclude pods from STS running on node without local-storage
-		if options.excludeStatefulSetOnNodeWithoutStorage {
-			podFilterCordon = append(podFilterCordon, kubernetes.NewPodFiltersNoStatefulSetOnNodeWithoutDisk(runtimeObjectStoreImpl))
+			return err
 		}
 
 		eventRecorderForDrainerActivities, _ := kubernetes.BuildEventRecorderWithAggregationOnEventTypeAndMessage(zapr.NewLogger(log), cs, options.eventAggregationPeriod, options.logEvents)
-
-		consolidatedOptInAnnotations := append(options.optInPodAnnotations, options.shortLivedPodAnnotations...)
-
-		globalConfig := kubernetes.GlobalConfig{
-			Context:                            ctx,
-			ConfigName:                         options.configName,
-			SuppliedConditions:                 options.suppliedConditions,
-			PVCManagementEnableIfNoEvictionUrl: options.pvcManagementByDefault,
-		}
-
-		drainerSkipPodFilter := kubernetes.NewPodFiltersIgnoreCompletedPods(
-			kubernetes.NewPodFiltersIgnoreShortLivedPods(
-				kubernetes.NewPodFiltersWithOptInFirst(kubernetes.PodOrControllerHasAnyOfTheAnnotations(runtimeObjectStoreImpl, consolidatedOptInAnnotations...), kubernetes.NewPodFilters(pf...)),
-				runtimeObjectStoreImpl, options.shortLivedPodAnnotations...))
-
 		cordonDrainer := kubernetes.NewAPICordonDrainer(cs,
 			eventRecorderForDrainerActivities,
 			kubernetes.MaxGracePeriod(options.minEvictionTimeout),
 			kubernetes.EvictionHeadroom(options.evictionHeadroom),
 			kubernetes.WithSkipDrain(options.skipDrain),
-			kubernetes.WithPodFilter(drainerSkipPodFilter),
+			kubernetes.WithPodFilter(filters.drainPodFilter),
 			kubernetes.WithStorageClassesAllowingDeletion(options.storageClassesAllowingVolumeDeletion),
 			kubernetes.WithMaxDrainAttemptsBeforeFail(options.maxDrainAttemptsBeforeFail),
 			kubernetes.WithGlobalConfig(globalConfig),
@@ -220,34 +250,6 @@ func main() {
 			kubernetes.WithRuntimeObjectStore(runtimeObjectStoreImpl),
 		)
 
-		// TODO do analysis and check if   drainerSkipPodFilter = NewPodFiltersIgnoreShortLivedPods(cordonPodFilteringFunc) ?
-		cordonPodFilteringFunc := kubernetes.NewPodFiltersIgnoreCompletedPods(
-			kubernetes.NewPodFiltersWithOptInFirst(
-				kubernetes.PodOrControllerHasAnyOfTheAnnotations(runtimeObjectStoreImpl, consolidatedOptInAnnotations...), kubernetes.NewPodFilters(podFilterCordon...)))
-
-		if len(options.nodeLabels) > 0 {
-			log.Info("node labels", zap.Any("labels", options.nodeLabels))
-			if options.nodeLabelsExpr != "" {
-				return fmt.Errorf("nodeLabels and NodeLabelsExpr cannot both be set")
-			}
-			if ptrStr, err := kubernetes.ConvertLabelsToFilterExpr(options.nodeLabels); err != nil {
-				return err
-			} else {
-				options.nodeLabelsExpr = *ptrStr
-			}
-		}
-
-		log.Debug("label expression", zap.Any("expr", options.nodeLabelsExpr))
-		nodeLabelFilterFunc, err := kubernetes.NewNodeLabelFilter(options.nodeLabelsExpr, log)
-		if err != nil {
-			log.Sugar().Fatalf("Failed to parse node label expression: %v", err)
-		}
-
-		filters := filtersDefinitions{
-			cordonPodFilter: cordonPodFilteringFunc,
-			drainPodFilter:  drainerSkipPodFilter,
-			nodeLabelFilter: nodeLabelFilterFunc,
-		}
 		watchers := watchers{
 			nodes:      nodes,
 			pods:       pods,
@@ -268,7 +270,6 @@ func main() {
 	if err != nil {
 		zap.L().Fatal("Program exit on error", zap.Error(err))
 	}
-
 }
 
 // launchTracerAndProfiler will initialize and run the tracer and the endpoint for the profiler
