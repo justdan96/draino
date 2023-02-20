@@ -64,6 +64,13 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+type filtersDefinitions struct {
+	cordonPodFilter kubernetes.PodFilterFunc
+	drainPodFilter  kubernetes.PodFilterFunc
+
+	nodeLabelFilter kubernetes.NodeLabelFilterFunc
+}
+
 func generateFilters(cs *client.Clientset, store kubernetes.RuntimeObjectStore, log *zap.Logger, options *Options) (filtersDefinitions, error) {
 	pf := []kubernetes.PodFilterFunc{kubernetes.MirrorPodFilter}
 	if !options.evictLocalStoragePods {
@@ -265,7 +272,7 @@ func main() {
 			kubernetes.WithRuntimeObjectStore(store),
 		)
 
-		indexer, err := index.New(globalConfig.Context, mgr.GetClient(), mgr.GetCache(), logger)
+		indexer, err := index.New(ctx, mgr.GetClient(), mgr.GetCache(), logger)
 		if err != nil {
 			return fmt.Errorf("error while initializing informer: %v\n", err)
 		}
@@ -282,7 +289,7 @@ func main() {
 		eventRecorderForDrainRunnerActivities, _ := kubernetes.BuildEventRecorderWithAggregationOnEventTypeAndMessage(logger, cs, options.eventAggregationPeriod, options.logEvents)
 
 		persistor := drainbuffer.NewConfigMapPersistor(cs.CoreV1().ConfigMaps(cfg.InfraParam.Namespace), options.drainBufferConfigMapName, cfg.InfraParam.Namespace)
-		drainBuffer := drainbuffer.NewDrainBuffer(globalConfig.Context, persistor, clock.RealClock{}, mgr.GetLogger(), eventRecorder, indexer, store, options.drainBuffer)
+		drainBuffer := drainbuffer.NewDrainBuffer(ctx, persistor, clock.RealClock{}, mgr.GetLogger(), eventRecorder, indexer, store, options.drainBuffer)
 		// The drain buffer can only be initialized when the manager client cache was started.
 		// Adding a custom runnable to the controller manager will make sure, that the initialization will be started as soon as possible.
 		if err := mgr.Add(getInitDrainBufferRunner(drainBuffer, &logger)); err != nil {
@@ -299,7 +306,7 @@ func main() {
 		}
 
 		pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
-		stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(globalConfig.Context, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{}, filtersDef.drainPodFilter)
+		stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(ctx, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{}, filtersDef.drainPodFilter)
 		filterFactory, err := filters.NewFactory(
 			filters.WithLogger(mgr.GetLogger()),
 			filters.WithRetryWall(retryWall),
@@ -348,7 +355,7 @@ func main() {
 		simulationPodFilter := kubernetes.NewPodFilters(filtersDef.drainPodFilter, kubernetes.PodOrControllerHasNoneOfTheAnnotations(store, kubernetes.EvictionAPIURLAnnotationKey))
 		simulationRateLimiter := limit.NewRateLimiter(clock.RealClock{}, cfg.KubeClientConfig.QPS*options.simulationRateLimitingRatio, int(float32(cfg.KubeClientConfig.Burst)*options.simulationRateLimitingRatio))
 		simulator := drain.NewDrainSimulator(context.Background(), mgr.GetClient(), indexer, simulationPodFilter, kubeVersion, eventRecorder, simulationRateLimiter, logger)
-		pdbAnalyser := analyser.NewPDBAnalyser(globalConfig.Context, mgr.GetLogger(), indexer, clock.RealClock{}, options.podWarmupDelayExtension)
+		pdbAnalyser := analyser.NewPDBAnalyser(ctx, mgr.GetLogger(), indexer, clock.RealClock{}, options.podWarmupDelayExtension)
 		sorters := candidate_runner.NodeSorters{
 			sorters.CompareNodeAnnotationDrainPriority,
 			sorters.NewConditionComparator(globalConfig.SuppliedConditions),
@@ -376,7 +383,7 @@ func main() {
 			return err
 		}
 
-		groupRegistry := groups.NewGroupRegistry(globalConfig.Context, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory, filtersDef.nodeLabelFilter, store.HasSynced, options.groupRunnerPeriod)
+		groupRegistry := groups.NewGroupRegistry(ctx, mgr.GetClient(), mgr.GetLogger(), eventRecorder, keyGetter, drainRunnerFactory, drainCandidateRunnerFactory, filtersDef.nodeLabelFilter, store.HasSynced, options.groupRunnerPeriod)
 		if err = groupRegistry.SetupWithManager(mgr); err != nil {
 			logger.Error(err, "failed to setup groupRegistry")
 			return err
@@ -406,7 +413,7 @@ func main() {
 		}
 
 		nodeDiagnostician := diagnosticFactory.BuildDiagnostician()
-		diagnostics := diagnostics.NewDiagnosticsController(globalConfig.Context, mgr.GetClient(), mgr.GetLogger(), eventRecorder, []diagnostics.Diagnostician{nodeDiagnostician}, store.HasSynced)
+		diagnostics := diagnostics.NewDiagnosticsController(ctx, mgr.GetClient(), mgr.GetLogger(), eventRecorder, []diagnostics.Diagnostician{nodeDiagnostician}, store.HasSynced)
 		if err = diagnostics.SetupWithManager(mgr); err != nil {
 			logger.Error(err, "failed to setup diagnostics")
 			return err
@@ -486,14 +493,6 @@ func GetKubernetesClientSet(config *kubeclient.Config) (*client.Clientset, error
 		return nil, fmt.Errorf("failed create Kubernetes client: %v", err)
 	}
 	return cs, nil
-}
-
-// TODO should we put this in globalConfig ?
-type filtersDefinitions struct {
-	cordonPodFilter kubernetes.PodFilterFunc
-	drainPodFilter  kubernetes.PodFilterFunc
-
-	nodeLabelFilter kubernetes.NodeLabelFilterFunc
 }
 
 // getInitDrainBufferRunner returns a Runnable that is responsible for initializing the drain buffer
