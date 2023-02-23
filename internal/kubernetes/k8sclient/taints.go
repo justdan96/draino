@@ -19,6 +19,9 @@ const (
 	// TaintDrainCandidate is used to mark a node as the next drain candidate.
 	// Now it will be picked up by the drain runner.
 	TaintDrainCandidate DrainTaintValue = "drain-candidate"
+	// TaintForceDrain is used to mark nodes that will not go through the normal drain/eviction pipeline.
+	// Instead of doing a lot of filtering and simulations, we are directly going into drain phase.
+	TaintForceDrain DrainTaintValue = "force-drain"
 	// TaintDraining is used to show that all preprocessors are done and that the draining will start now
 	TaintDraining DrainTaintValue = "draining"
 	// TaintDrained is used to show that the drain was successfully done and the node is ready to be shutdown

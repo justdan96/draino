@@ -43,6 +43,7 @@ import (
 	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
 	"github.com/planetlabs/draino/internal/drain_runner"
 	preprocessor "github.com/planetlabs/draino/internal/drain_runner/pre_processor"
+	forcedrain "github.com/planetlabs/draino/internal/force_drain"
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
@@ -572,6 +573,11 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 	groupFromPod := groups.NewGroupFromPod(mgr.GetClient(), mgr.GetLogger(), keyGetter, filtersDef.drainPodFilter, store.HasSynced)
 	if err = groupFromPod.SetupWithManager(mgr); err != nil {
 		logger.Error(err, "failed to setup groupFromPod")
+		return err
+	}
+	forceDrainCtrl := forcedrain.NewPriorityDeletionController()
+	if err = forceDrainCtrl.SetupWithManager(mgr); err != nil {
+		logger.Error(err, "failed to setup force drain controller")
 		return err
 	}
 

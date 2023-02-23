@@ -33,6 +33,8 @@ type SuppliedCondition struct {
 	// with a lower time limit. Default is 7 days for now.
 	ExpectedResolutionTime string `json:"expectedResolutionTime"`
 
+	ShouldForceDrain bool `json:"forceDrain"`
+
 	// Rate Limiting
 	RateLimitQPS   *float32 `json:"rateLimitQPS,omitempty"`
 	RateLimitBurst *int     `json:"rateLimitBurst,omitempty"`
@@ -60,6 +62,15 @@ func IsOverdue(n *core.Node, suppliedCondition SuppliedCondition) bool {
 		if suppliedCondition.Type == nodeCondition.Type &&
 			suppliedCondition.Status == nodeCondition.Status &&
 			time.Since(nodeCondition.LastTransitionTime.Time) >= suppliedCondition.parsedExpectedResolutionTime {
+			return true
+		}
+	}
+	return false
+}
+
+func AtLeastOneForceDrainCondition(conditions []SuppliedCondition) bool {
+	for _, condition := range conditions {
+		if condition.ShouldForceDrain {
 			return true
 		}
 	}

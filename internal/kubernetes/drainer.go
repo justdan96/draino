@@ -187,6 +187,8 @@ type Cordoner interface {
 type Drainer interface {
 	// Drain the supplied node. Evicts the node of all but mirror and DaemonSet pods.
 	Drain(ctx context.Context, n *core.Node) error
+	// ForceDrain will try to evict the node and delete all pods where the eviction did not succeed.
+	ForceDrain(ctx context.Context, n *core.Node) error
 	MarkDrain(ctx context.Context, n *core.Node, when, finish time.Time, failed bool, failCount int32) error
 	MarkDrainDelete(ctx context.Context, n *core.Node) error
 	GetPodsToDrain(ctx context.Context, node string, podStore PodStore) ([]*core.Pod, error)
@@ -240,6 +242,9 @@ func (d *NoopCordonDrainer) Uncordon(ctx context.Context, n *core.Node, mutators
 
 // Drain does nothing.
 func (d *NoopCordonDrainer) Drain(ctx context.Context, n *core.Node) error { return nil }
+
+// ForceDrain does nothing.
+func (d *NoopCordonDrainer) ForceDrain(ctx context.Context, n *core.Node) error { return nil }
 
 // ResetRetryAnnotation does nothing.
 func (d *NoopCordonDrainer) ResetRetryAnnotation(ctx context.Context, n *core.Node) error { return nil }
@@ -725,6 +730,75 @@ func (d *APICordonDrainer) Drain(ctx context.Context, node *core.Node) error {
 	return nil
 }
 
+func (d *APICordonDrainer) ForceDrain(ctx context.Context, node *core.Node) error {
+	span, ctx := tracer.StartSpanFromContext(ctx, "ForceDrain")
+	defer span.Finish()
+
+	// Do nothing if draining is not enabled.
+	if d.skipDrain {
+		TracedLoggerForNode(ctx, node, d.l).Debug("Skipping force drain because of dry-run mode")
+		return nil
+	}
+
+	// retrieve a fresh version of the node
+	n, err := d.c.CoreV1().Nodes().Get(ctx, node.Name, meta.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	taint, hasNLATaint := k8sclient.GetNLATaint(n)
+
+	// We should not do anything as long as the node is tainted by another part of the application,
+	// because having two goroutines working on the same node at the time might cause weird behaviour.
+	if !hasNLATaint || taint.Value != k8sclient.TaintForceDrain {
+		TracedLoggerForNode(ctx, node, d.l).Info("Aborting drain because the node is not in force-drain state")
+		return NodeIsNotCordonError{NodeName: node.Name}
+	}
+
+	pods, err := d.GetPodsToDrain(ctx, n.GetName(), nil)
+	if err != nil {
+		return fmt.Errorf("cannot get pods for node %s: %w", n.GetName(), err)
+	}
+
+	abort := make(chan struct{})
+	errs := make(chan error, 1)
+	for i := range pods {
+		pod := pods[i]
+		go func() {
+			d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionStarting, "Removing pod %s/%s to force drain node", pod.Namespace, pod.Name)
+			d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionStarting, "Removing pod to force drain node %s", n.Name)
+			if err := d.evictOrDelete(ctx, n, pod, abort); err != nil {
+				d.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, eventReasonEvictionFailed, "Removing failed for pod %s/%s: %v", pod.Namespace, pod.Name, err)
+				d.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, eventReasonEvictionFailed, "Removing failed: %v", err)
+				errs <- fmt.Errorf("cannot evict pod %s/%s: %w", pod.GetNamespace(), pod.GetName(), err)
+				return
+			}
+			d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod %s/%s removed from node", pod.Namespace, pod.Name)
+			d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod removed from node %s", n.Name)
+			errs <- nil // the for range pods below expects to receive one value per pod from the errs channel
+		}()
+	}
+	// This will _eventually_ abort evictions. Evictions may spend up to
+	// d.deleteTimeout() in d.awaitDeletion(), or 5 seconds in backoff before
+	// noticing they've been aborted.
+	//
+	// Note(adrienjt): In addition, they may also spend up to:
+	// - 1min/PVC awaiting PVC deletions,
+	// - 1min/PV awaiting PV deletions,
+	// - and DefaultPVCRecreateTimeout per PVC
+	defer close(abort)
+
+	for range pods {
+		if err := <-errs; err != nil {
+			return fmt.Errorf("cannot remove all pods: %w", err)
+			// all remaining evictions are aborted and their errors ignored (aborted or otherwise)
+			// TODO(adrienjt): capture missing errors?
+			// They are registered as events on pods.
+		}
+	}
+	return nil
+}
+
 func (d *APICordonDrainer) GetPodsToDrain(ctx context.Context, node string, podStore PodStore) ([]*core.Pod, error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, "GetPodsToDrain")
 	defer span.Finish()
@@ -758,6 +832,26 @@ func (d *APICordonDrainer) GetPodsToDrain(ctx context.Context, node string, podS
 		}
 	}
 	return include, nil
+}
+
+func (d *APICordonDrainer) evictOrDelete(ctx context.Context, node *core.Node, pod *core.Pod, abort <-chan struct{}) error {
+	span, ctx := tracer.StartSpanFromContext(ctx, "EvictOrDelete")
+	defer span.Finish()
+
+	return d.evictionSequence(ctx, node, pod, abort, func() error {
+		// first try to evict the pod.
+		// If this doesn't work, because of blocking PBD we are going on with just deleting the pod.
+		err := d.c.CoreV1().Pods(pod.Namespace).Evict(ctx, &policy.Eviction{
+			ObjectMeta: meta.ObjectMeta{Namespace: pod.GetNamespace(), Name: pod.GetName()},
+		})
+		if apierrors.IsTooManyRequests(err) {
+			return d.c.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, meta.DeleteOptions{})
+		}
+		return err
+	}, func(e error) error {
+		// TODO: shall we do something here?
+		return e
+	})
 }
 
 func (d *APICordonDrainer) evict(ctx context.Context, node *core.Node, pod *core.Pod, abort <-chan struct{}) error {

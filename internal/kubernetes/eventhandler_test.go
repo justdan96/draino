@@ -75,6 +75,14 @@ func (d *mockCordonDrainer) Drain(ctx context.Context, n *core.Node) error {
 	return nil
 }
 
+func (d *mockCordonDrainer) ForceDrain(ctx context.Context, n *core.Node) error {
+	d.calls = append(d.calls, mockCall{
+		name: "ForceDrain",
+		node: n.Name,
+	})
+	return nil
+}
+
 func (d *mockCordonDrainer) GetMaxDrainAttemptsBeforeFail(ctx context.Context, n *core.Node) int32 {
 	return 0
 }

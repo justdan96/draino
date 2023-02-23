@@ -15,6 +15,11 @@ func NewNodeWithConditionFilter(conditions []kubernetes.SuppliedCondition) Filte
 			if len(badConditions) == 0 {
 				return false, "no_condition"
 			}
+			// This will make sure that the drain_runner is ignoring nodes with unrecoverable conditions
+			// as they will be handled by a different routine.
+			if kubernetes.AtLeastOneForceEvictCondition(badConditions) {
+				return false, "found_unrecoverable_condition"
+			}
 			badConditionsStr := kubernetes.GetConditionsTypes(badConditions)
 			if !kubernetes.AtLeastOneConditionAcceptedByTheNode(badConditionsStr, n) {
 				return false, "no_allowed_condition"
