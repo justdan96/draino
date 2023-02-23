@@ -2,6 +2,7 @@ package drain_runner
 
 import (
 	"reflect"
+	"strconv"
 	"sync"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
@@ -16,7 +17,7 @@ var (
 		DrainedNodes: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "draino_drained_nodes_total",
 			Help: "Number of nodes drained.",
-		}, []string{kubernetes.TagResult.Name(), kubernetes.TagFailureCause.Name(), kubernetes.TagConditions.Name(), kubernetes.TagNodegroupName.Name(), kubernetes.TagNodegroupNamePrefix.Name(), kubernetes.TagNodegroupNamespace.Name(), kubernetes.TagTeam.Name()}),
+		}, []string{kubernetes.TagResult.Name(), kubernetes.TagFailureCause.Name(), kubernetes.TagConditions.Name(), kubernetes.TagNodegroupName.Name(), kubernetes.TagNodegroupNamePrefix.Name(), kubernetes.TagNodegroupNamespace.Name(), kubernetes.TagTeam.Name(), "force_drained"}),
 	}
 	registerOnce sync.Once
 )
@@ -38,10 +39,10 @@ const (
 	DrainedNodeResultFailed    DrainNodesResult = "failed"
 )
 
-func CounterDrainedNodes(node *core.Node, result DrainNodesResult, conditions []kubernetes.SuppliedCondition, failureReason kubernetes.FailureCause) {
+func CounterDrainedNodes(node *core.Node, result DrainNodesResult, conditions []kubernetes.SuppliedCondition, failureReason kubernetes.FailureCause, forceDrain bool) {
 	values := kubernetes.GetNodeTagsValues(node)
 	for _, c := range kubernetes.GetConditionsTypes(conditions) {
-		tags := []string{string(result), string(failureReason), c, values.NgName, kubernetes.GetNodeGroupNamePrefix(values.NgName), values.NgNamespace, values.Team}
+		tags := []string{string(result), string(failureReason), c, values.NgName, kubernetes.GetNodeGroupNamePrefix(values.NgName), values.NgNamespace, values.Team, strconv.FormatBool(forceDrain)}
 		Metrics.DrainedNodes.WithLabelValues(tags...).Add(1)
 	}
 }

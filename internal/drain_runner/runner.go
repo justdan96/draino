@@ -235,11 +235,11 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 	if errRefresh != nil {
 		if apierrors.IsNotFound(errRefresh) {
 			loggerForNode.Info("node has been deleted while we were waiting for the drain to complete")
-			CounterDrainedNodes(candidate, DrainedNodeResultSucceeded, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), "node_deleted")
+			CounterDrainedNodes(candidate, DrainedNodeResultSucceeded, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), "node_deleted", false)
 			return nil
 		}
 		loggerForNode.Error(errRefresh, "failed to refresh node after drain")
-		CounterDrainedNodes(candidate, DrainedNodeResultFailed, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), "node_refresh")
+		CounterDrainedNodes(candidate, DrainedNodeResultFailed, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), "node_refresh", false)
 		return errRefresh
 	}
 	if err != nil {
@@ -248,7 +248,7 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 			loggerForNode.Error(err, "error doesn't map to a failure cause")
 			failureCause = "undefined"
 		}
-		CounterDrainedNodes(candidate, DrainedNodeResultFailed, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), failureCause)
+		CounterDrainedNodes(candidate, DrainedNodeResultFailed, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), failureCause, false)
 		loggerForNode.Error(err, "failed to drain node", "failure_cause", failureCause)
 		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Drain failed: %v", err)
 		runner.resetPreProcessors(ctx, candidate, info.Key)
@@ -267,7 +267,7 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 		loggerForNode.Error(err, "Failed to add 'drained' taint")
 		return err
 	}
-	CounterDrainedNodes(candidate, DrainedNodeResultSucceeded, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), "")
+	CounterDrainedNodes(candidate, DrainedNodeResultSucceeded, kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions), "", false)
 	runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeNormal, kubernetes.EventReasonDrainSucceeded, "Drained node")
 	runner.logger.Info("successfully drained node", "node", candidate.Name)
 	return nil

@@ -750,7 +750,7 @@ func (d *APICordonDrainer) ForceDrain(ctx context.Context, node *core.Node) erro
 
 	// We should not do anything as long as the node is tainted by another part of the application,
 	// because having two goroutines working on the same node at the time might cause weird behaviour.
-	if !hasNLATaint || taint.Value != k8sclient.TaintForceDrain {
+	if !hasNLATaint || taint.Value != k8sclient.TaintForceDraining {
 		TracedLoggerForNode(ctx, node, d.l).Info("Aborting drain because the node is not in force-drain state")
 		return NodeIsNotCordonError{NodeName: node.Name}
 	}
@@ -839,12 +839,14 @@ func (d *APICordonDrainer) evictOrDelete(ctx context.Context, node *core.Node, p
 	defer span.Finish()
 
 	return d.evictionSequence(ctx, node, pod, abort, func() error {
+		d.l.Info("try to evict pod before deletion request", zap.String("pod", pod.Name), zap.String("pod_namespace", pod.Namespace), zap.String("node", node.Name))
 		// first try to evict the pod.
 		// If this doesn't work, because of blocking PBD we are going on with just deleting the pod.
 		err := d.c.CoreV1().Pods(pod.Namespace).Evict(ctx, &policy.Eviction{
 			ObjectMeta: meta.ObjectMeta{Namespace: pod.GetNamespace(), Name: pod.GetName()},
 		})
 		if apierrors.IsTooManyRequests(err) {
+			d.l.Info("failed to evict pod; will continue with deletion", zap.String("pod", pod.Name), zap.String("pod_namespace", pod.Namespace), zap.String("node", node.Name), zap.Error(err))
 			return d.c.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, meta.DeleteOptions{})
 		}
 		return err

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/planetlabs/draino/internal/drain_runner"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	corev1 "k8s.io/api/core/v1"
@@ -21,24 +22,26 @@ import (
 )
 
 type ForceDrainController struct {
-	kclient       client.Client
-	drainer       kubernetes.Drainer
-	conditions    []kubernetes.SuppliedCondition
-	clock         clock.Clock
-	logger        logr.Logger
-	hasSyncedFunc HasSyncedFunc
+	kclient           client.Client
+	drainer           kubernetes.Drainer
+	conditions        []kubernetes.SuppliedCondition
+	clock             clock.Clock
+	logger            logr.Logger
+	nodeFilteringFunc kubernetes.NodeLabelFilterFunc
+	hasSyncedFunc     HasSyncedFunc
 }
 
 type HasSyncedFunc func() bool
 
-func NewPriorityDeletionController(kclient client.Client, drainer kubernetes.Drainer, conditions []kubernetes.SuppliedCondition, logger logr.Logger, syncFunc HasSyncedFunc) *ForceDrainController {
+func NewPriorityDeletionController(kclient client.Client, drainer kubernetes.Drainer, conditions []kubernetes.SuppliedCondition, logger logr.Logger, syncFunc HasSyncedFunc, nodeFilteringFunc kubernetes.NodeLabelFilterFunc) *ForceDrainController {
 	return &ForceDrainController{
-		kclient:       kclient,
-		drainer:       drainer,
-		conditions:    conditions,
-		clock:         clock.RealClock{},
-		logger:        logger.WithName("ForceDrainController"),
-		hasSyncedFunc: syncFunc,
+		kclient:           kclient,
+		drainer:           drainer,
+		conditions:        conditions,
+		clock:             clock.RealClock{},
+		nodeFilteringFunc: nodeFilteringFunc,
+		logger:            logger.WithName("ForceDrainController"),
+		hasSyncedFunc:     syncFunc,
 	}
 }
 
@@ -56,6 +59,11 @@ func (ctrl *ForceDrainController) Reconcile(ctx context.Context, req cr.Request)
 		return cr.Result{}, fmt.Errorf("get Node Fails: %v", err)
 	}
 
+	// ignore all nodes that are not in scope
+	if ctrl.nodeFilteringFunc == nil || ctrl.nodeFilteringFunc(node) {
+		return cr.Result{}, nil
+	}
+
 	// The node should have at least one force drain condition
 	badConditions := kubernetes.GetNodeOffendingConditions(&node, ctrl.conditions)
 	if len(badConditions) == 0 {
@@ -65,14 +73,31 @@ func (ctrl *ForceDrainController) Reconcile(ctx context.Context, req cr.Request)
 		return cr.Result{}, nil
 	}
 
-	freshNode, err := k8sclient.AddNLATaint(ctx, ctrl.kclient, &node, ctrl.clock.Now(), k8sclient.TaintForceDrain)
+	// If the taint exists already, it means that another part of the code is already working on this node.
+	// So we'll either expect it to remove the taint or finish the processing.
+	if _, exist := k8sclient.GetNLATaint(&node); exist {
+		return cr.Result{}, nil
+	}
+
+	ctrl.logger.Info("found node with force drain condition", "node", node.Name)
+
+	freshNode, err := k8sclient.AddNLATaint(ctx, ctrl.kclient, &node, ctrl.clock.Now(), k8sclient.TaintForceDraining)
 	if err != nil {
 		return cr.Result{}, err
 	}
 
 	err = ctrl.drainer.ForceDrain(ctx, freshNode)
+	if err != nil {
+		failureCause := kubernetes.GetFailureCause(err)
+		drain_runner.CounterDrainedNodes(&node, drain_runner.DrainedNodeResultFailed, badConditions, failureCause, true)
+		_, _ = k8sclient.RemoveNLATaint(ctx, ctrl.kclient, freshNode)
+		return cr.Result{}, err
+	}
 
-	return cr.Result{}, err
+	drain_runner.CounterDrainedNodes(&node, drain_runner.DrainedNodeResultSucceeded, badConditions, "", true)
+	ctrl.logger.Info("sucessfully force-drained node", "node", node.Name)
+	_, _ = k8sclient.AddNLATaint(ctx, ctrl.kclient, freshNode, ctrl.clock.Now(), k8sclient.TaintForceDrained)
+	return cr.Result{}, nil
 }
 
 // SetupWithManager setups the controller with goroutine and predicates
