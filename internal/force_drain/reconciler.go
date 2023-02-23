@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	corev1 "k8s.io/api/core/v1"
@@ -21,14 +22,24 @@ import (
 
 type ForceDrainController struct {
 	kclient       client.Client
-	prioRemover   kubernetes.Drainer
+	drainer       kubernetes.Drainer
 	conditions    []kubernetes.SuppliedCondition
 	clock         clock.Clock
-	hasSyncedFunc func() bool
+	logger        logr.Logger
+	hasSyncedFunc HasSyncedFunc
 }
 
-func NewPriorityDeletionController() *ForceDrainController {
-	return &ForceDrainController{}
+type HasSyncedFunc func() bool
+
+func NewPriorityDeletionController(kclient client.Client, drainer kubernetes.Drainer, conditions []kubernetes.SuppliedCondition, logger logr.Logger, syncFunc HasSyncedFunc) *ForceDrainController {
+	return &ForceDrainController{
+		kclient:       kclient,
+		drainer:       drainer,
+		conditions:    conditions,
+		clock:         clock.RealClock{},
+		logger:        logger.WithName("ForceDrainController"),
+		hasSyncedFunc: syncFunc,
+	}
 }
 
 // Reconcile register the node in the reverse index per ProviderIP
@@ -45,12 +56,12 @@ func (ctrl *ForceDrainController) Reconcile(ctx context.Context, req cr.Request)
 		return cr.Result{}, fmt.Errorf("get Node Fails: %v", err)
 	}
 
-	// The node should have at least one unrecoverable condition
+	// The node should have at least one force drain condition
 	badConditions := kubernetes.GetNodeOffendingConditions(&node, ctrl.conditions)
 	if len(badConditions) == 0 {
 		return cr.Result{}, nil
 	}
-	if !kubernetes.AtLeastOneForceEvictCondition(badConditions) {
+	if !kubernetes.AtLeastOneForceDrainCondition(badConditions) {
 		return cr.Result{}, nil
 	}
 
@@ -59,7 +70,7 @@ func (ctrl *ForceDrainController) Reconcile(ctx context.Context, req cr.Request)
 		return cr.Result{}, err
 	}
 
-	err = ctrl.prioRemover.ForceDrain(ctx, freshNode)
+	err = ctrl.drainer.ForceDrain(ctx, freshNode)
 
 	return cr.Result{}, err
 }

@@ -575,7 +575,7 @@ func controllerRuntimeBootstrap(options *Options, cfg *controllerruntime.Config,
 		logger.Error(err, "failed to setup groupFromPod")
 		return err
 	}
-	forceDrainCtrl := forcedrain.NewPriorityDeletionController()
+	forceDrainCtrl := forcedrain.NewPriorityDeletionController(mgr.GetClient(), drainer, globalConfig.SuppliedConditions, logger, store.HasSynced)
 	if err = forceDrainCtrl.SetupWithManager(mgr); err != nil {
 		logger.Error(err, "failed to setup force drain controller")
 		return err
