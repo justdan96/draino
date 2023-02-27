@@ -8,7 +8,6 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/spf13/pflag"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 // Options collects the program options/parameters
@@ -39,10 +38,6 @@ type Options struct {
 	cordonLocalStoragePods                 bool
 	excludeStatefulSetOnNodeWithoutStorage bool
 	cordonProtectedPodAnnotations          []string
-
-	// Cordon limiter flags
-	skipCordonLimiterNodeAnnotation         string
-	skipCordonLimiterNodeAnnotationSelector labels.Selector
 
 	maxNotReadyNodes          []string
 	maxNotReadyNodesFunctions map[string]kubernetes.ComputeBlockStateFunctionFactory
@@ -150,7 +145,6 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringVar(&opt.kubecfg, "kubeconfig", "", "Path to kubeconfig file. Leave unset to use in-cluster config.")
 	fs.StringVar(&opt.apiserver, "master", "", "Address of Kubernetes API server. Leave unset to use in-cluster config.")
 	fs.StringVar(&opt.drainGroupLabelKey, "drain-group-labels", "", "Comma separated list of label keys to be used to form draining groups. KEY1,KEY2,...")
-	fs.StringVar(&opt.skipCordonLimiterNodeAnnotation, "skip-cordon-limiter-node-annotation", "", "Skip all limiter logic if node has annotation. KEY[=VALUE]")
 	fs.StringVar(&opt.configName, "config-name", "", "Name of the draino configuration")
 
 	// We are using some values with json content, so don't use StringSlice: https://github.com/spf13/pflag/issues/370
@@ -177,12 +171,6 @@ func (o *Options) Validate() error {
 	// If the drain buffer config name is not set, we'll reuse the configName
 	if o.drainBufferConfigMapName == "" {
 		o.drainBufferConfigMapName = fmt.Sprintf("draino-%s-drain-buffer", o.configName)
-	}
-
-	// Cordon limiter validation
-	o.skipCordonLimiterNodeAnnotationSelector, err = labels.Parse(o.skipCordonLimiterNodeAnnotation)
-	if err != nil {
-		return fmt.Errorf("cannot parse 'skip-cordon-limiter-node-annotation' argument, %#v", err)
 	}
 
 	// NotReady Nodes and NotReady Pods

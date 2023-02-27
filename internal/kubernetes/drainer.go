@@ -354,7 +354,7 @@ func WithMaxDrainAttemptsBeforeFail(maxDrainAttemptsBeforeFail int) APICordonDra
 	}
 }
 
-// WithMaxDrainAttemptsBeforeFail configures the max count of failed drain attempts before a final fail
+// WithRuntimeObjectStore configures the runtime object store
 func WithRuntimeObjectStore(store RuntimeObjectStore) APICordonDrainerOption {
 	return func(d *APICordonDrainer) {
 		d.runtimeObjectStore = store
