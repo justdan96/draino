@@ -305,7 +305,7 @@ func main() {
 			return errRW
 		}
 
-		pvProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
+		pvcProtector := protector.NewPVCProtector(store, zlog, globalConfig.PVCManagementEnableIfNoEvictionUrl)
 		stabilityPeriodChecker := analyser.NewStabilityPeriodChecker(globalConfig.Context, logger, mgr.GetClient(), nil, store, indexer, analyser.StabilityPeriodCheckerConfiguration{}, filtersDef.drainPodFilter)
 		filterFactory, err := filters.NewFactory(
 			filters.WithLogger(mgr.GetLogger()),
@@ -319,7 +319,7 @@ func main() {
 			filters.WithGroupKeyGetter(keyGetter),
 			filters.WithGlobalBlocker(globalBlocker),
 			filters.WithEventRecorder(eventRecorder),
-			filters.WithPVCProtector(pvProtector),
+			filters.WithPVCProtector(pvcProtector),
 		)
 		if err != nil {
 			logger.Error(err, "failed to configure the filters")
