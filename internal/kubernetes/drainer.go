@@ -187,7 +187,7 @@ type Cordoner interface {
 type Drainer interface {
 	// Drain the supplied node. Evicts the node of all but mirror and DaemonSet pods.
 	Drain(ctx context.Context, n *core.Node) error
-	// ForceDrain will try to evict the node and delete all pods where the eviction did not succeed.
+	// ForceDrain will try to evict all pods from the given node and delete the ones where the eviction did not succeed.
 	ForceDrain(ctx context.Context, n *core.Node) error
 	MarkDrain(ctx context.Context, n *core.Node, when, finish time.Time, failed bool, failCount int32) error
 	MarkDrainDelete(ctx context.Context, n *core.Node) error

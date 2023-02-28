@@ -81,6 +81,7 @@ func (ctrl *ForceDrainController) Reconcile(ctx context.Context, req cr.Request)
 
 	ctrl.logger.Info("found node with force drain condition", "node", node.Name)
 
+	// Adding an NLA taint might fail in case of an outdated node object
 	freshNode, err := k8sclient.AddNLATaint(ctx, ctrl.kclient, &node, ctrl.clock.Now(), k8sclient.TaintForceDraining)
 	if err != nil {
 		return cr.Result{}, err
@@ -90,12 +91,14 @@ func (ctrl *ForceDrainController) Reconcile(ctx context.Context, req cr.Request)
 	if err != nil {
 		failureCause := kubernetes.GetFailureCause(err)
 		drain_runner.CounterDrainedNodes(&node, drain_runner.DrainedNodeResultFailed, badConditions, failureCause, true)
+		// Removing an NLA taint might fail in case of an outdated node object
 		_, _ = k8sclient.RemoveNLATaint(ctx, ctrl.kclient, freshNode)
 		return cr.Result{}, err
 	}
 
 	drain_runner.CounterDrainedNodes(&node, drain_runner.DrainedNodeResultSucceeded, badConditions, "", true)
 	ctrl.logger.Info("sucessfully force-drained node", "node", node.Name)
+	// Adding an NLA taint might fail in case of an outdated node object
 	_, _ = k8sclient.AddNLATaint(ctx, ctrl.kclient, freshNode, ctrl.clock.Now(), k8sclient.TaintForceDrained)
 	return cr.Result{}, nil
 }
