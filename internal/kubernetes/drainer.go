@@ -676,24 +676,19 @@ func (d *APICordonDrainer) Drain(ctx context.Context, node *core.Node) error {
 		return fmt.Errorf("cannot get pods for node %s: %w", n.GetName(), err)
 	}
 
+	hasForceDrainCondition := AtLeastOneForceDrainCondition(GetNodeOffendingConditions(n, d.globalConfig.SuppliedConditions))
+
 	abort := make(chan struct{})
 	errs := make(chan error, 1)
 	for i := range pods {
 		pod := pods[i]
-		go func() {
-			d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod %s/%s to drain node", pod.Namespace, pod.Name)
-			d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod to drain node %s", n.Name)
-			if err := d.evict(ctx, n, pod, abort); err != nil {
-				d.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed for pod %s/%s: %v", pod.Namespace, pod.Name, err)
-				d.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed: %v", err)
-				errs <- fmt.Errorf("cannot evict pod %s/%s: %w", pod.GetNamespace(), pod.GetName(), err)
-				return
-			}
-			d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod %s/%s evicted from node", pod.Namespace, pod.Name)
-			d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod evicted from node %s", n.Name)
-			errs <- nil // the for range pods below expects to receive one value per pod from the errs channel
-		}()
+		if hasForceDrainCondition {
+			go d.forceDrainWithDelete(ctx, n, pod, abort, errs)
+		} else {
+			go d.normalDrainWithEviction(ctx, n, pod, abort, errs)
+		}
 	}
+
 	// This will _eventually_ abort evictions. Evictions may spend up to
 	// d.deleteTimeout() in d.awaitDeletion(), or 5 seconds in backoff before
 	// noticing they've been aborted.
@@ -713,6 +708,35 @@ func (d *APICordonDrainer) Drain(ctx context.Context, node *core.Node) error {
 		}
 	}
 	return nil
+}
+
+func (d *APICordonDrainer) normalDrainWithEviction(ctx context.Context, n *v1.Node, pod *v1.Pod, abort chan struct{}, errs chan error) {
+	d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod %s/%s to drain node", pod.Namespace, pod.Name)
+	d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionStarting, "Evicting pod to drain node %s", n.Name)
+	if err := d.evict(ctx, n, pod, abort); err != nil {
+		d.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed for pod %s/%s: %v", pod.Namespace, pod.Name, err)
+		d.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, eventReasonEvictionFailed, "Eviction failed: %v", err)
+		errs <- fmt.Errorf("cannot evict pod %s/%s: %w", pod.GetNamespace(), pod.GetName(), err)
+		return
+	}
+	d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod %s/%s evicted from node", pod.Namespace, pod.Name)
+	d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod evicted from node %s", n.Name)
+	errs <- nil // the for range pods below expects to receive one value per pod from the errs channel
+}
+
+func (d *APICordonDrainer) forceDrainWithDelete(ctx context.Context, n *v1.Node, pod *v1.Pod, abort chan struct{}, errs chan error) {
+	// TODO do we want to have different type of events, or message difference is enough
+	d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionStarting, "Deleting pod %s/%s to force drain node", pod.Namespace, pod.Name)
+	d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionStarting, "Deleting pod to force drain node %s", n.Name)
+	if err := d.deleteWithKubernetesAPI(ctx, n, pod, abort); err != nil {
+		d.eventRecorder.NodeEventf(ctx, n, core.EventTypeWarning, eventReasonEvictionFailed, "Delete failed for pod %s/%s: %v", pod.Namespace, pod.Name, err)
+		d.eventRecorder.PodEventf(ctx, pod, core.EventTypeWarning, eventReasonEvictionFailed, "Delete failed: %v", err)
+		errs <- fmt.Errorf("cannot evict pod %s/%s: %w", pod.GetNamespace(), pod.GetName(), err)
+		return
+	}
+	d.eventRecorder.NodeEventf(ctx, n, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod %s/%s evicted from node", pod.Namespace, pod.Name)
+	d.eventRecorder.PodEventf(ctx, pod, core.EventTypeNormal, eventReasonEvictionSucceeded, "Pod evicted from node %s", n.Name)
+	errs <- nil // the for range pods below expects to receive one value per pod from the errs channel
 }
 
 func (d *APICordonDrainer) GetPodsToDrain(ctx context.Context, node string, podStore PodStore) ([]*core.Pod, error) {
@@ -796,7 +820,23 @@ func (d *APICordonDrainer) evictWithKubernetesAPI(ctx context.Context, node *cor
 			return err // unexpected (we're already catching 429 and 500), may be a client side error
 		},
 	)
+}
 
+func (d *APICordonDrainer) deleteWithKubernetesAPI(ctx context.Context, node *core.Node, pod *core.Pod, abort <-chan struct{}) error {
+	span, ctx := tracer.StartSpanFromContext(ctx, "deleteWithKubernetesAPI")
+	defer span.Finish()
+
+	return d.evictionSequence(ctx, node, pod, abort,
+		// eviction function, here we use delete instead to perform a force drain
+		func() error {
+			return d.c.CoreV1().Pods(pod.GetNamespace()).Delete(ctx, pod.GetName(), meta.DeleteOptions{})
+		},
+		// error handling function
+		func(err error) error {
+			// No special case for delete error
+			return err
+		},
+	)
 }
 
 // evictWithOperatorAPI This function calls an Operator endpoint to perform the eviction instead of the classic kubernetes eviction endpoint

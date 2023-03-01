@@ -203,22 +203,26 @@ func (runner *drainRunner) handleCandidate(ctx context.Context, info *groups.Run
 		return errRmTaint
 	}
 
-	// Checking pre-activities
-	kubernetes.LogrForVerboseNode(runner.logger, candidate, "Node is candidate for drain, checking pre-activities")
-	allPreprocessorsDone, shouldAbort, reason := runner.checkPreprocessors(ctx, candidate, info.Key)
-	if shouldAbort {
-		runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Error while waiting for pre conditions: %s", reason)
-		runner.resetPreProcessors(ctx, candidate, info.Key)
-		newNode, err := runner.updateRetryWallOnCandidate(ctx, candidate, fmt.Sprintf("pre-conditions failed %s", reason), info.Key)
-		if err != nil {
+	hasForceDrainCondition := kubernetes.AtLeastOneForceDrainCondition(kubernetes.GetNodeOffendingConditions(candidate, runner.suppliedConditions))
+
+	// Checking pre-activities, pre activities are skipped if the node has forceDrain condition
+	if !hasForceDrainCondition {
+		kubernetes.LogrForVerboseNode(runner.logger, candidate, "Node is candidate for drain, checking pre-activities")
+		allPreprocessorsDone, shouldAbort, reason := runner.checkPreprocessors(ctx, candidate, info.Key)
+		if shouldAbort {
+			runner.eventRecorder.NodeEventf(ctx, candidate, core.EventTypeWarning, kubernetes.EventReasonDrainFailed, "Error while waiting for pre conditions: %s", reason)
+			runner.resetPreProcessors(ctx, candidate, info.Key)
+			newNode, err := runner.updateRetryWallOnCandidate(ctx, candidate, fmt.Sprintf("pre-conditions failed %s", reason), info.Key)
+			if err != nil {
+				return err
+			}
+			_, err = k8sclient.RemoveNLATaint(ctx, runner.client, newNode)
 			return err
 		}
-		_, err = k8sclient.RemoveNLATaint(ctx, runner.client, newNode)
-		return err
-	}
-	if !allPreprocessorsDone {
-		loggerForNode.Info("waiting for preprocessors to be done before draining", "node", candidate.Name)
-		return nil
+		if !allPreprocessorsDone {
+			loggerForNode.Info("waiting for preprocessors to be done before draining", "node", candidate.Name)
+			return nil
+		}
 	}
 
 	loggerForNode.Info("start draining")
