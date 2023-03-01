@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/go-logr/zapr"
+
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
+
 	"go.uber.org/zap"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -69,7 +71,7 @@ func TestNewGroupRegistry(t *testing.T) {
 			drainFactory:          NewTestRunnerFactory(),
 			drainCandidateFactory: NewTestRunnerFactory(),
 			keyGetterFactory: func(client client.Client) GroupKeyGetter {
-				return NewGroupKeyFromNodeMetadata(client, testLogger, kubernetes.NoopEventRecorder{}, nil, nil, []string{"key"}, nil, "")
+				return NewGroupKeyFromNodeMetadata(client, testLogger, kubernetes.NoopEventRecorder{}, nil, nil, []string{"key"}, nil, "", nil)
 			},
 			runCount: map[GroupKey]int{
 				"g1": 1,

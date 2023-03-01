@@ -68,12 +68,3 @@ func indexPodsByNodeName(o interface{}) ([]string, error) {
 	}
 	return []string{pod.Spec.NodeName}, nil
 }
-
-func (i *Indexer) GetPodCount(ctx context.Context) (int, error) {
-	inf, err := i.GetSharedIndexInformer(ctx, &corev1.Pod{})
-	if err != nil {
-		return 0, err
-	}
-
-	return len(inf.GetStore().List()), nil
-}

@@ -5,9 +5,6 @@ import (
 	"testing"
 
 	"github.com/go-logr/zapr"
-	"github.com/planetlabs/draino/internal/kubernetes"
-	"github.com/planetlabs/draino/internal/kubernetes/index"
-	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
@@ -15,6 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	fakeclient "k8s.io/client-go/kubernetes/fake"
+
+	"github.com/planetlabs/draino/internal/kubernetes"
+	"github.com/planetlabs/draino/internal/kubernetes/index"
+	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 )
 
 func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
@@ -23,6 +24,7 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 		labelsKeys                 []string
 		annotationKeys             []string
 		groupOverrideAnnotationKey string
+		suppliedConditions         []kubernetes.SuppliedCondition
 		node                       *v1.Node
 		want                       GroupKey
 	}{
@@ -62,6 +64,29 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 			want: GroupKey("l1#l2#a1#a2"),
 		},
 		{
+			name:           "values 2 keys labels 2 annotation with override",
+			labelsKeys:     []string{"L1", "L2"},
+			annotationKeys: []string{"A1", "A2"},
+			node: &v1.Node{
+				ObjectMeta: meta.ObjectMeta{
+					Labels:      map[string]string{"L0": "l0", "L1": "l1", "L2": "l2", "L3": "l3"},
+					Annotations: map[string]string{"A0": "a0", "A1": "a1", "A2": "a2", "A3": "a3"},
+				},
+				Status: v1.NodeStatus{Conditions: []v1.NodeCondition{
+					{
+						Type:   "forceDrainType",
+						Status: v1.ConditionTrue,
+					},
+				}},
+			},
+			suppliedConditions: []kubernetes.SuppliedCondition{{
+				Type:             "forceDrainType",
+				ShouldForceDrain: true,
+				Status:           v1.ConditionTrue,
+			}},
+			want: GroupKey("l1#l2#a1#a2#forceDrain"),
+		},
+		{
 			name:                       "override",
 			labelsKeys:                 []string{"L1", "L2"},
 			annotationKeys:             []string{"A1", "A2"},
@@ -86,6 +111,54 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 				},
 			},
 			want: GroupKey("zzz#xxx"),
+		},
+		{
+			name:                       "override with forceDrain",
+			labelsKeys:                 []string{"L1", "L2"},
+			annotationKeys:             []string{"A1", "A2"},
+			groupOverrideAnnotationKey: "ZZZ",
+			node: &v1.Node{
+				ObjectMeta: meta.ObjectMeta{
+					Labels:      map[string]string{"L0": "l0", "L1": "l1", "L2": "l2", "L3": "l3"},
+					Annotations: map[string]string{"AAA": "aaa", "A0": "a0", "A1": "a1", "A2": "a2", "A3": "a3", "ZZZ": "zzz,xxx"},
+				},
+				Status: v1.NodeStatus{Conditions: []v1.NodeCondition{
+					{
+						Type:   "forceDrainType",
+						Status: v1.ConditionTrue,
+					},
+				}},
+			},
+			suppliedConditions: []kubernetes.SuppliedCondition{{
+				Type:             "forceDrainType",
+				ShouldForceDrain: true,
+				Status:           v1.ConditionTrue,
+			}},
+			want: GroupKey("zzz#xxx#forceDrain"),
+		},
+		{
+			name:                       "pod override  with forceDrain",
+			labelsKeys:                 []string{"L1", "L2"},
+			groupOverrideAnnotationKey: "ZZZ",
+			node: &v1.Node{
+				ObjectMeta: meta.ObjectMeta{
+					Name:        "the-node",
+					Labels:      nil,
+					Annotations: map[string]string{"AAA": "aaa", "A0": "a0", "A1": "a1", "A2": "a2", "A3": "a3", "ZZZ" + podOverrideAnnotationSuffix: "zzz,xxx"},
+				},
+				Status: v1.NodeStatus{Conditions: []v1.NodeCondition{
+					{
+						Type:   "forceDrainType",
+						Status: v1.ConditionTrue,
+					},
+				}},
+			},
+			suppliedConditions: []kubernetes.SuppliedCondition{{
+				Type:             "forceDrainType",
+				ShouldForceDrain: true,
+				Status:           v1.ConditionTrue,
+			}},
+			want: GroupKey("zzz#xxx#forceDrain"),
 		},
 	}
 	testLogger := zapr.NewLogger(zap.NewNop())
@@ -112,7 +185,7 @@ func TestGroupKeyFromMetadata_GetGroupKey(t *testing.T) {
 			}
 
 			t.Run(tt.name, func(t *testing.T) {
-				g := NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, tt.labelsKeys, tt.annotationKeys, tt.groupOverrideAnnotationKey)
+				g := NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, tt.labelsKeys, tt.annotationKeys, tt.groupOverrideAnnotationKey, tt.suppliedConditions)
 				if got := g.GetGroupKey(tt.node); got != tt.want {
 					t.Errorf("GetGroupKey() = %v, want %v", got, tt.want)
 				}
@@ -205,7 +278,7 @@ func TestGroupKeyFromMetadata_UpdateGroupKeyOnNode(t *testing.T) {
 			defer close(ch)
 			wrapper.Start(ch)
 
-			g := NewGroupKeyFromNodeMetadata(wrapper.GetManagerClient(), testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, []string{drainGroupLabelKey}, []string{kubernetes.DrainGroupAnnotation}, groupOverrideAnnotationKey)
+			g := NewGroupKeyFromNodeMetadata(wrapper.GetManagerClient(), testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, []string{drainGroupLabelKey}, []string{kubernetes.DrainGroupAnnotation}, groupOverrideAnnotationKey, nil)
 			got, err := g.UpdateGroupKeyOnNode(ctx, tt.node)
 			assert.NoError(t, err, "cannot update node group key")
 			if got != tt.want {
@@ -394,7 +467,7 @@ func TestGroupKeyFromMetadata_GetGroupKeyFromPods(t *testing.T) {
 		}
 
 		t.Run(tt.name, func(t *testing.T) {
-			g := NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, nil, nil, tt.groupOverrideAnnotationKey).(*GroupKeyFromMetadata)
+			g := NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, fakeIndexer, store, nil, nil, tt.groupOverrideAnnotationKey, nil).(*GroupKeyFromMetadata)
 			gotValue, override := g.getGroupOverrideFromPods(tt.node)
 			assert.Equalf(t, tt.want, gotValue, "groupKey value")
 			assert.Equalf(t, tt.override, override, "Override")

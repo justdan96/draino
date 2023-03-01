@@ -6,11 +6,12 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
-	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const DrainGroupAnnotationKey = "node-lifecycle.datadoghq.com/drain-group"
@@ -33,11 +34,12 @@ type GroupKeyFromMetadata struct {
 	store                      kubernetes.RuntimeObjectStore
 	eventRecorder              kubernetes.EventRecorder
 	logger                     logr.Logger
+	suppliedConditions         []kubernetes.SuppliedCondition
 }
 
 var _ GroupKeyGetter = &GroupKeyFromMetadata{}
 
-func NewGroupKeyFromNodeMetadata(client client.Client, logger logr.Logger, eventRecorder kubernetes.EventRecorder, podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, labelsKeys, annotationKeys []string, groupOverrideAnnotationKey string) GroupKeyGetter {
+func NewGroupKeyFromNodeMetadata(client client.Client, logger logr.Logger, eventRecorder kubernetes.EventRecorder, podIndexer index.PodIndexer, store kubernetes.RuntimeObjectStore, labelsKeys, annotationKeys []string, groupOverrideAnnotationKey string, conditions []kubernetes.SuppliedCondition) GroupKeyGetter {
 	return &GroupKeyFromMetadata{
 		kclient:                    client,
 		labelsKeys:                 labelsKeys,
@@ -47,6 +49,7 @@ func NewGroupKeyFromNodeMetadata(client client.Client, logger logr.Logger, event
 		store:                      store,
 		eventRecorder:              eventRecorder,
 		logger:                     logger.WithName("GroupKeyGetter"),
+		suppliedConditions:         conditions,
 	}
 }
 
@@ -146,25 +149,35 @@ func (g *GroupKeyFromMetadata) GetGroupKey(node *v1.Node) GroupKey {
 	// slice that contains the values that will compose the groupKey
 	var values []string
 
+	forceDrainSuffix := g.getForceDrainSuffix(node)
+
 	// let's tackle the simple case where the user completely override the groupkey
 	// node override takes over pods override. In other words if node override exists any pods value would be ignored
 	if override, ok := g.getGroupOverrideFromNodeAnnotation(node); ok {
 		// in that case we completely replace the groups, we remove the default groups.
 		// for example, this allows users to define a kubernetes-cluster wide groups if the default is set to namespace
-		return override
+		return override + GroupKey(forceDrainSuffix)
 	}
 
 	// Do we have an override that was delivered by pods
 	if override, ok := g.getGroupOverrideFromNodePodAnnotation(node); ok {
 		// in that case we completely replace the groups, we remove the default groups.
 		// for example, this allows users to define a kubernetes-cluster wide groups if the default is set to namespace
-		return override
+		return override + GroupKey(forceDrainSuffix)
 	}
 
 	// let's build the groups values from labels and annotations
 	values = append(getValueOrEmpty(node.Labels, g.labelsKeys), getValueOrEmpty(node.Annotations, g.annotationKeys)...)
 
-	return GroupKey(strings.Join(values, GroupKeySeparator))
+	return GroupKey(strings.Join(values, GroupKeySeparator)) + GroupKey(forceDrainSuffix)
+}
+
+func (g *GroupKeyFromMetadata) getForceDrainSuffix(node *v1.Node) (forceDrainSuffix string) {
+	// nodes with force drain signal will go to a dedicated group
+	if kubernetes.AtLeastOneForceDrainCondition(kubernetes.GetNodeOffendingConditions(node, g.suppliedConditions)) {
+		forceDrainSuffix = GroupKeySeparator + "forceDrain"
+	}
+	return forceDrainSuffix
 }
 
 // getGroupOverrideFromPods return the group override from pods if any.

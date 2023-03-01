@@ -9,11 +9,6 @@ import (
 
 	"github.com/go-logr/zapr"
 
-	"github.com/planetlabs/draino/internal/candidate_runner/filters"
-	preprocessor "github.com/planetlabs/draino/internal/drain_runner/pre_processor"
-	"github.com/planetlabs/draino/internal/groups"
-	"github.com/planetlabs/draino/internal/kubernetes"
-	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -23,6 +18,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	cachecr "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/planetlabs/draino/internal/candidate_runner/filters"
+	preprocessor "github.com/planetlabs/draino/internal/drain_runner/pre_processor"
+	"github.com/planetlabs/draino/internal/groups"
+	"github.com/planetlabs/draino/internal/kubernetes"
+	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 )
 
 type failDrainer struct {
@@ -143,7 +144,7 @@ func TestDrainRunner(t *testing.T) {
 				Objects: []runtime.Object{tt.Node},
 				Indexes: []k8sclient.WithIndex{
 					func(_ client.Client, cache cachecr.Cache) error {
-						return groups.InitSchedulingGroupIndexer(cache, groups.NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, nil, nil, []string{"key"}, nil, ""))
+						return groups.InitSchedulingGroupIndexer(cache, groups.NewGroupKeyFromNodeMetadata(nil, testLogger, kubernetes.NoopEventRecorder{}, nil, nil, []string{"key"}, nil, "", nil))
 					},
 				},
 			})
