@@ -16,12 +16,13 @@ import (
 	"github.com/planetlabs/draino/internal/scheduler"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+
 	"github.com/planetlabs/draino/internal/groups"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -127,24 +128,29 @@ func (runner *candidateRunner) Run(info *groups.RunnerInfo) error {
 	groupIteration:
 		for node, ok := nodeProvider.Next(); ok; node, ok = nodeProvider.Next() {
 			logForNode := runner.logger.WithValues("node", node.Name)
+
+			hasForceDrainCondition := kubernetes.AtLeastOneForceDrainCondition(kubernetes.GetNodeOffendingConditions(node, runner.suppliedConditions))
+
 			// check that the node can be drained
-			canDrain, reasons, errDrainSimulation := runner.drainSimulator.SimulateDrain(ctx, node)
-			if len(errDrainSimulation) > 0 {
-				for _, e := range errDrainSimulation {
-					if k8sclient.IsClientSideRateLimiting(e) {
-						dataInfo.LastRunRateLimited = true
-						logForNode.Info("Not exploring the group further: simulation rate limited")
-						break groupIteration
+			if !hasForceDrainCondition { // TODO extra the Simulation section in a dedicated function
+				canDrain, reasons, errDrainSimulation := runner.drainSimulator.SimulateDrain(ctx, node)
+				if len(errDrainSimulation) > 0 {
+					for _, e := range errDrainSimulation {
+						if k8sclient.IsClientSideRateLimiting(e) {
+							dataInfo.LastRunRateLimited = true
+							logForNode.Info("Not exploring the group further: simulation rate limited")
+							break groupIteration
+						}
 					}
+					dataInfo.LastSimulationRejections = append(dataInfo.LastSimulationRejections, node.Name)
+					logForNode.Error(errDrainSimulation[0], "Failed to simulate drain")
+					continue
 				}
-				dataInfo.LastSimulationRejections = append(dataInfo.LastSimulationRejections, node.Name)
-				logForNode.Error(errDrainSimulation[0], "Failed to simulate drain")
-				continue
-			}
-			if !canDrain {
-				dataInfo.LastSimulationRejections = append(dataInfo.LastSimulationRejections, node.Name)
-				logForNode.Info("Rejected by drain simulation", "reason", strings.Join(reasons, ";"))
-				continue
+				if !canDrain {
+					dataInfo.LastSimulationRejections = append(dataInfo.LastSimulationRejections, node.Name)
+					logForNode.Info("Rejected by drain simulation", "reason", strings.Join(reasons, ";"))
+					continue
+				}
 			}
 
 			// Check if one of the condition rate limiters has capacity
