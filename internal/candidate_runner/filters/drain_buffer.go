@@ -3,10 +3,11 @@ package filters
 import (
 	"context"
 
-	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
-	"github.com/planetlabs/draino/internal/groups"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/utils/clock"
+
+	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
+	"github.com/planetlabs/draino/internal/groups"
 )
 
 func NewDrainBufferFilter(drainBuffer drainbuffer.DrainBuffer, clock clock.Clock, groupKeyGetter groups.GroupKeyGetter) Filter {
@@ -25,5 +26,6 @@ func NewDrainBufferFilter(drainBuffer drainbuffer.DrainBuffer, clock clock.Clock
 
 			return false, "drain buffer is not respected"
 		},
+		false,
 	)
 }

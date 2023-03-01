@@ -3,10 +3,11 @@ package filters
 import (
 	"context"
 
-	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/clock"
+
+	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 )
 
 func NewStabilityPeriodFilter(checker analyser.StabilityPeriodChecker, clock clock.Clock) Filter {
@@ -17,5 +18,6 @@ func NewStabilityPeriodFilter(checker analyser.StabilityPeriodChecker, clock clo
 			defer span.Finish()
 			return checker.StabilityPeriodAcceptsDrain(context.Background(), n, clock.Now())
 		},
+		false,
 	)
 }

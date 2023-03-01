@@ -3,8 +3,9 @@ package filters
 import (
 	"context"
 
-	"github.com/planetlabs/draino/internal/kubernetes"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/planetlabs/draino/internal/kubernetes"
 )
 
 func NewFailedNodeReplacementFilter() Filter {
@@ -18,5 +19,6 @@ func NewFailedNodeReplacementFilter() Filter {
 			val, exist := n.Labels[kubernetes.NodeLabelKeyReplaceRequest]
 			return !exist || val != kubernetes.NodeLabelValueReplaceFailed
 		},
+		false,
 	)
 }

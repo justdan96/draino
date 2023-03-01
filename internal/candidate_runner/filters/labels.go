@@ -7,5 +7,5 @@ import (
 )
 
 func NewNodeWithLabelFilter(nodeLabelsFilterFunc kubernetes.NodeLabelFilterFunc) Filter {
-	return FilterFromFunction("labels", NodeFilterFuncFromInterfaceFunc(func(ctx context.Context, o interface{}) bool { return nodeLabelsFilterFunc(o) }))
+	return FilterFromFunction("labels", NodeFilterFuncFromInterfaceFunc(func(ctx context.Context, o interface{}) bool { return nodeLabelsFilterFunc(o) }), true)
 }

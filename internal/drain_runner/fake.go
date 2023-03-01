@@ -10,6 +10,9 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/go-logr/logr"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/utils/clock"
+
 	"github.com/planetlabs/draino/internal/candidate_runner/filters"
 	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
 	preprocessor "github.com/planetlabs/draino/internal/drain_runner/pre_processor"
@@ -17,8 +20,6 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/utils/clock"
 )
 
 type FakeOptions struct {
@@ -69,7 +70,7 @@ func (opts *FakeOptions) ApplyDefaults() error {
 		opts.NodeReplacer = preprocessor.NewNodeReplacer(opts.ClientWrapper.GetManagerClient(), *opts.Logger)
 	}
 	if opts.Filter == nil {
-		opts.Filter = filters.FilterFromFunction("always_true", func(ctx context.Context, n *v1.Node) bool { return true })
+		opts.Filter = filters.FilterFromFunction("always_true", func(ctx context.Context, n *v1.Node) bool { return true }, true)
 	}
 	if opts.DrainBuffer == nil {
 		fakeClient := fake.NewSimpleClientset()

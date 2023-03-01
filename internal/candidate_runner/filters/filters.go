@@ -12,6 +12,8 @@ type Filter interface {
 	Filter(ctx context.Context, nodes []*v1.Node) (keep []*v1.Node)
 	// FilterNode returns the name(s) of the filter(s) and detailed reason(s) for rejection
 	FilterNode(ctx context.Context, n *v1.Node) FilterOutput
+	// ShouldApplyToNodeWithForceDrain determines if the filter should de applied to node with conditions with forceDrain label
+	ShouldApplyToNodeWithForceDrain() bool
 }
 
 type FilterOutput struct {
@@ -42,8 +44,13 @@ type NodeFilterFunc func(ctx context.Context, n *v1.Node) bool
 type NodeFilterFuncWithReason func(ctx context.Context, n *v1.Node) (bool, string)
 
 type genericFilterFromFunc struct {
-	name string
-	f    NodeFilterFuncWithReason
+	name              string
+	f                 NodeFilterFuncWithReason
+	applyToForceDrain bool
+}
+
+func (g *genericFilterFromFunc) ShouldApplyToNodeWithForceDrain() bool {
+	return g.applyToForceDrain
 }
 
 func (g *genericFilterFromFunc) Name() string {
@@ -83,18 +90,20 @@ func NodeFilterFuncFromInterfaceFunc(f func(ctx context.Context, o interface{}) 
 	}
 }
 
-func FilterFromFunction(name string, filterFunc NodeFilterFunc) Filter {
+func FilterFromFunction(name string, filterFunc NodeFilterFunc, applyOnForceDrain bool) Filter {
 	return FilterFromFunctionWithReason(
 		name,
 		func(ctx context.Context, n *v1.Node) (bool, string) {
 			return filterFunc(ctx, n), ""
 		},
+		applyOnForceDrain,
 	)
 }
 
-func FilterFromFunctionWithReason(name string, filterFunc NodeFilterFuncWithReason) Filter {
+func FilterFromFunctionWithReason(name string, filterFunc NodeFilterFuncWithReason, applyOnForceDrain bool) Filter {
 	return &genericFilterFromFunc{
-		name: name,
-		f:    filterFunc,
+		name:              name,
+		f:                 filterFunc,
+		applyToForceDrain: applyOnForceDrain,
 	}
 }

@@ -4,8 +4,9 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	"github.com/planetlabs/draino/internal/kubernetes"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/planetlabs/draino/internal/kubernetes"
 )
 
 func NewPodFilter(logger logr.Logger, podFilter kubernetes.PodFilterFunc, objectsStore kubernetes.RuntimeObjectStore) Filter {
@@ -30,5 +31,6 @@ func NewPodFilter(logger logr.Logger, podFilter kubernetes.PodFilterFunc, object
 				}
 			}
 			return true, ""
-		})
+		},
+		true)
 }

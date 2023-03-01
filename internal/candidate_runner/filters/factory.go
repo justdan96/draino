@@ -21,7 +21,8 @@ func NewFactory(withOptions ...WithOption) (*FilterFactory, error) {
 
 func (factory *FilterFactory) BuildCandidateFilter() Filter {
 	f := &CompositeFilter{
-		logger: factory.conf.logger.WithName("CandidateFilter"),
+		logger:     factory.conf.logger.WithName("CandidateFilter"),
+		conditions: factory.conf.globalConfig.SuppliedConditions,
 	}
 
 	f.filters = []Filter{

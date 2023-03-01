@@ -2,12 +2,14 @@ package filters
 
 import (
 	"context"
+	"strings"
+
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/kubernetes/pkg/apis/core"
+
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	"github.com/planetlabs/draino/internal/protector"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/kubernetes/pkg/apis/core"
-	"strings"
 )
 
 func NewPVCBoundFilter(protector protector.PVCProtector, eventRecorder kubernetes.EventRecorder) Filter {
@@ -23,5 +25,6 @@ func NewPVCBoundFilter(protector protector.PVCProtector, eventRecorder kubernete
 				return false, "pvcProtection triggered for pods: " + pods
 			}
 			return true, ""
-		})
+		},
+		false)
 }

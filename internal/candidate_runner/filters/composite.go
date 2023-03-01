@@ -3,8 +3,9 @@ package filters
 import (
 	"context"
 	"fmt"
-	"github.com/planetlabs/draino/internal/kubernetes"
 	"strings"
+
+	"github.com/planetlabs/draino/internal/kubernetes"
 
 	"github.com/DataDog/compute-go/logs"
 	"github.com/go-logr/logr"
@@ -13,10 +14,14 @@ import (
 )
 
 type CompositeFilter struct {
-	logger  logr.Logger
-	filters []Filter
+	logger     logr.Logger
+	filters    []Filter
+	conditions []kubernetes.SuppliedCondition
+	name       string // the name depends on the order that we use for the filter. So this cached value must be reset in case the filters order is changed.
+}
 
-	name string // the name depends on the order that we use for the filter. So this cached value must be reset in case the filters order is changed.
+func (c *CompositeFilter) ShouldApplyToNodeWithForceDrain() bool {
+	return true
 }
 
 const (
@@ -54,7 +59,11 @@ func (c *CompositeFilter) Filter(ctx context.Context, nodes []*v1.Node) (keep []
 func (c *CompositeFilter) FilterNode(ctx context.Context, n *v1.Node) FilterOutput {
 	keep := true
 	result := FilterOutput{}
+	hasForceDrain := kubernetes.AtLeastOneForceDrainCondition(kubernetes.GetNodeOffendingConditions(n, c.conditions))
 	for _, f := range c.filters {
+		if hasForceDrain && !f.ShouldApplyToNodeWithForceDrain() {
+			continue
+		}
 		fOut := f.FilterNode(ctx, n)
 		result.Checks = append(result.Checks, fOut.Checks...)
 		keep = keep && fOut.Keep

@@ -3,8 +3,9 @@ package filters
 import (
 	"context"
 
-	"github.com/planetlabs/draino/internal/kubernetes"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/planetlabs/draino/internal/kubernetes"
 )
 
 func NewNodeWithConditionFilter(conditions []kubernetes.SuppliedCondition) Filter {
@@ -21,6 +22,7 @@ func NewNodeWithConditionFilter(conditions []kubernetes.SuppliedCondition) Filte
 			}
 			return true, ""
 		},
+		true,
 	)
 
 }

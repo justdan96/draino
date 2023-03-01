@@ -3,8 +3,9 @@ package filters
 import (
 	"context"
 
-	"github.com/planetlabs/draino/internal/kubernetes"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/planetlabs/draino/internal/kubernetes"
 )
 
 func NewGlobalBlockerFilter(globalBlocker kubernetes.GlobalBlocker) Filter {
@@ -15,5 +16,6 @@ func NewGlobalBlockerFilter(globalBlocker kubernetes.GlobalBlocker) Filter {
 			// return true means that the node will be kept, so we have to invert the result from the locker as it will return true when it's blocked.
 			return !isBlocked, reason
 		},
+		true,
 	)
 }
