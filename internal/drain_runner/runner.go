@@ -347,7 +347,10 @@ func (runner *drainRunner) drainCandidate(ctx context.Context, info *groups.Runn
 	err = runner.drainer.Drain(drainContext, candidate)
 	// We can ignore the error as it's only fired when the drain buffer is not initialized.
 	// This cannot happen as the main loop of the drain runner will be blocked in that case.
-	_ = runner.drainBuffer.StoreDrainAttempt(info.Key, drainBuffer)
+	//
+	// We associate the Drain buffer to the main group. We want the drain buffer to be honoured in the group
+	// associated with a forceDrain group. The forceDrain group itself do not have to honour the drainBuffer
+	_ = runner.drainBuffer.StoreDrainAttempt(groups.GetPrincipalGroup(info.Key), drainBuffer)
 	if err != nil {
 		return err
 	}

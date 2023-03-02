@@ -172,6 +172,10 @@ func (g *GroupKeyFromMetadata) GetGroupKey(node *v1.Node) GroupKey {
 	return GroupKey(strings.Join(values, GroupKeySeparator)) + GroupKey(forceDrainSuffix)
 }
 
+func GetPrincipalGroup(key GroupKey) GroupKey {
+	return GroupKey(strings.TrimSuffix(string(key), GroupKeySeparator+"forceDrain"))
+}
+
 func (g *GroupKeyFromMetadata) getForceDrainSuffix(node *v1.Node) (forceDrainSuffix string) {
 	// nodes with force drain signal will go to a dedicated group
 	if kubernetes.AtLeastOneForceDrainCondition(kubernetes.GetNodeOffendingConditions(node, g.suppliedConditions)) {
