@@ -2,7 +2,14 @@ package diagnostics
 
 import (
 	"context"
+	"time"
+
 	"github.com/go-logr/logr"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/clock"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/planetlabs/draino/internal/candidate_runner"
 	"github.com/planetlabs/draino/internal/candidate_runner/filters"
 	drainbuffer "github.com/planetlabs/draino/internal/drain_buffer"
@@ -12,11 +19,6 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes/drain"
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/clock"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
 )
 
 type Diagnostics struct {
@@ -49,6 +51,8 @@ func (diag *Diagnostics) GetNodeDiagnostic(ctx context.Context, nodeName string)
 	}
 	groupKey := diag.keyGetter.GetGroupKey(&node)
 
+	hasForceDrain := kubernetes.AtLeastOneForceDrainCondition(kubernetes.GetNodeOffendingConditions(&node, diag.suppliedConditions))
+
 	var drainBufferAt *time.Time
 	nextDrainBufferTime, _ := diag.drainBuffer.NextDrain(groupKey)
 	if diag.drainBuffer.IsReady() && !nextDrainBufferTime.IsZero() {
@@ -58,8 +62,14 @@ func (diag *Diagnostics) GetNodeDiagnostic(ctx context.Context, nodeName string)
 
 	var dsr DrainSimulationResult
 	var errs []error
-	dsr.CanDrain, dsr.Reasons, errs = diag.drainSimulator.SimulateDrain(ctx, &node)
-	dsr.Errors = utils.AsInterfaces(errs)
+	if !hasForceDrain {
+		dsr.CanDrain, dsr.Reasons, errs = diag.drainSimulator.SimulateDrain(ctx, &node)
+		dsr.Errors = utils.AsInterfaces(errs)
+	} else {
+		dsr.CanDrain = true
+		dsr.Reasons = []string{"force-drain activated", "delete will be used instead of evict"}
+	}
+
 	ng := node.Labels["nodegroups.datadoghq.com/name"]
 	ngns := node.Labels["nodegroups.datadoghq.com/namespace"]
 	zone := node.Labels["topology.ebs.csi.aws.com/zone"]
