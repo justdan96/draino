@@ -415,7 +415,7 @@ func (runner *drainRunner) handlePVCProtection(ctx context.Context, info *groups
 				continue
 			}
 			runner.eventRecorder.NodeEventf(ctx, node, core.EventTypeWarning, kubernetes.EventReasonPendingPodWithLocalPV, "Pod "+pods[0].Namespace+"/"+pods[0].Name+" needs that node due to local PV, removing taint from the node")
-			// TODO add metrics to track the case and alert
+			CounterDrainedNodes(node, DrainedNodeResultFailed, runner.suppliedConditions, "pvc_protection")
 		}
 	}
 }
