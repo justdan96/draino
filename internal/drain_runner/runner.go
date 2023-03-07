@@ -396,7 +396,9 @@ func (runner *drainRunner) getNodesForNLATaint(ctx context.Context, key groups.G
 }
 
 func (runner *drainRunner) handlePVCProtection(ctx context.Context, info *groups.RunnerInfo) {
-	taintedNodes, _, err := runner.getNodesForNLATaint(ctx, info.Key, []k8sclient.DrainTaintValue{k8sclient.TaintDrained, k8sclient.TaintDrainCandidate}) // not taking `draining` on purpose because this is not a "stable" state.
+	// not taking `draining` on purpose because this is not a "stable" state.
+	// not taking `drainCandidate` because the case is already tackled in at filtering time in this runner (filtering + taint removal)
+	taintedNodes, _, err := runner.getNodesForNLATaint(ctx, info.Key, []k8sclient.DrainTaintValue{k8sclient.TaintDrained})
 	if err != nil {
 		runner.logger.Error(err, "failed to get draining nodes for group")
 		return
