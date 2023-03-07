@@ -111,7 +111,6 @@ func (runner *drainRunner) handleLeftOverDraining(ctx context.Context, info *gro
 	if len(draining) > 0 {
 		runner.logger.Info("Found some nodes that were stuck in draining", "count", len(draining))
 	}
-	// TODO add metric to track amount of nodes blocked in draining
 	for _, n := range draining {
 		updatedNode, errRetryWall := runner.updateRetryWallOnCandidate(ctx, n, "Node stuck in draining (controller restart?)", info.Key)
 		if errRetryWall != nil {
@@ -122,6 +121,7 @@ func (runner *drainRunner) handleLeftOverDraining(ctx context.Context, info *gro
 			runner.logger.Error(err, "Failed to remove taint on node left over in 'draining'", "node", n.Name)
 			return
 		}
+		CounterDrainedNodes(n, DrainedNodeResultFailed, runner.suppliedConditions, "stuck_in_draining")
 	}
 }
 
