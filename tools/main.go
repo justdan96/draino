@@ -8,7 +8,6 @@ import (
 
 	"github.com/DataDog/compute-go/controllerruntime"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -33,10 +32,5 @@ func main() {
 
 	if err := root.Execute(); err != nil {
 		logger.Error(err, "root command exit with error")
-	}
-
-	_ = zap.L().Sync()
-	if err != nil {
-		zap.L().Fatal("Program exit on error", zap.Error(err))
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/DataDog/compute-go/table"
 	"github.com/spf13/cobra"
@@ -24,6 +25,8 @@ type taintCommandFlags struct {
 	nodegroupNamespace string
 	outputFormat       cli.OutputFormatType
 	tableOutputParams  table.OutputParameters
+	taintValue         string
+	taintOverride      bool
 }
 
 var taintCmdFlags taintCommandFlags
@@ -86,10 +89,10 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 				}
 
 				if _, err := k8sclient.RemoveNLATaint(context.Background(), mgr.GetClient(), node); err != nil {
-					fmt.Printf("%v: %v\n", node.Name, err)
+					resultColumn.data[node.Name] = fmt.Sprintf("err: %#v", err)
 					continue
 				}
-				fmt.Printf("%v: done\n", node.Name)
+				resultColumn.data[node.Name] = fmt.Sprintf("done")
 			}
 			output, err := FormatNodesOutput(nodes, []nodeExtraColumns{resultColumn})
 			if err != nil {
@@ -100,7 +103,46 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 			return nil
 		},
 	}
-	taintCmd.AddCommand(listCmd, deleteCmd)
+
+	addCmd := &cobra.Command{
+		Use:        "add",
+		SuggestFor: []string{"add"},
+		Args:       cobra.MaximumNArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if taintCmdFlags.nodeName == "" {
+				return fmt.Errorf("a node-name must be set to add a NLA taint")
+			}
+
+			var taintValue k8sclient.DrainTaintValue
+			switch taintCmdFlags.taintValue {
+			case k8sclient.TaintDrained:
+				taintValue = k8sclient.TaintDrained
+			case k8sclient.TaintDraining:
+				taintValue = k8sclient.TaintDraining
+			case k8sclient.TaintDrainCandidate:
+				taintValue = k8sclient.TaintDrainCandidate
+			default:
+				return fmt.Errorf("unknown NLA taint value")
+			}
+
+			var node v1.Node
+			if err := mgr.GetClient().Get(context.Background(), types.NamespacedName{Name: taintCmdFlags.nodeName}, &node, &client.GetOptions{}); err != nil {
+				return err
+			}
+			if _, found := k8sclient.GetNLATaint(&node); found {
+				if !taintCmdFlags.taintOverride {
+					return fmt.Errorf("NLA taint already present on the node. Use 'taint-override' flag if you want to set/reset it")
+				}
+			}
+
+			k8sclient.AddNLATaint(context.Background(), mgr.GetClient(), &node, time.Now(), taintValue)
+			return nil
+		},
+	}
+	taintCmd.PersistentFlags().StringVarP(&taintCmdFlags.taintValue, "taint-value", "", k8sclient.TaintDrainCandidate, "NLA taint value to add")
+	taintCmd.PersistentFlags().BoolVarP(&taintCmdFlags.taintOverride, "taint-override", "", false, "allow taint override")
+
+	taintCmd.AddCommand(listCmd, deleteCmd, addCmd)
 	return taintCmd
 }
 
@@ -157,7 +199,7 @@ func NGValues(node *v1.Node) (name, ns string) {
 }
 
 func listNodeFilter(kclient client.Client, nodeName string, ngName string, ngNamespace string) ([]*v1.Node, error) {
-
+	var nodes []v1.Node
 	if nodeName != "" {
 		var node v1.Node
 		if err := kclient.Get(context.Background(), types.NamespacedName{Name: nodeName}, &node, &client.GetOptions{}); err != nil {
@@ -174,15 +216,17 @@ func listNodeFilter(kclient client.Client, nodeName string, ngName string, ngNam
 		if ngName != "" && ngName != ng {
 			return nil, nil
 		}
-		return []*v1.Node{&node}, nil
+		nodes = append(nodes, node)
+	} else {
+		var listOfNodes v1.NodeList
+		if err := kclient.List(context.Background(), &listOfNodes, &client.ListOptions{}); err != nil {
+			return nil, err
+		}
+		nodes = listOfNodes.Items
 	}
 	var result []*v1.Node
-	var nodes v1.NodeList
-	if err := kclient.List(context.Background(), &nodes, &client.ListOptions{}); err != nil {
-		return nil, err
-	}
-	for i := range nodes.Items {
-		node := &nodes.Items[i]
+	for i := range nodes {
+		node := &nodes[i]
 		if _, f := k8sclient.GetNLATaint(node); !f {
 			continue
 		}
