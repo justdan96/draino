@@ -1,23 +1,27 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"time"
 
-	"github.com/DataDog/compute-go/controllerruntime"
+	"github.com/DataDog/compute-go/kubeclient"
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
-	// Read application flags
-	cfg, fs := controllerruntime.ConfigFromFlags(false, false)
-	mgr, logger, _, err := controllerruntime.NewManager(cfg)
+	cfg, fs := kubeclient.ConfigFromFlags()
+	cfgRest, err := kubeclient.NewKubeConfig(cfg)
 	if err != nil {
-		fmt.Printf("error while creating manager: %v\n", err)
+		fmt.Printf("Failed to build client config: %#v\n", err)
 		os.Exit(1)
 	}
+	kclient, err := client.New(cfgRest, client.Options{})
+	if err != nil {
+		fmt.Printf("Failed to build client: %#v\n", err)
+		os.Exit(1)
+	}
+	// Read application flags
 
 	root := &cobra.Command{
 		Short:        "draino-tool",
@@ -25,12 +29,9 @@ func main() {
 		SilenceUsage: true,
 	}
 	root.PersistentFlags().AddFlagSet(fs)
-	root.AddCommand(TaintCmd(mgr))
-
-	go mgr.Start(context.Background())
-	time.Sleep(time.Second)
+	root.AddCommand(TaintCmd(kclient))
 
 	if err := root.Execute(); err != nil {
-		logger.Error(err, "root command exit with error")
+		fmt.Printf("root command exit with error: %#v", err)
 	}
 }

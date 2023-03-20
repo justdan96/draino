@@ -12,7 +12,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/planetlabs/draino/internal/cli"
 	"github.com/planetlabs/draino/internal/kubernetes"
@@ -31,7 +30,7 @@ type taintCommandFlags struct {
 
 var taintCmdFlags taintCommandFlags
 
-func TaintCmd(mgr manager.Manager) *cobra.Command {
+func TaintCmd(kclient client.Client) *cobra.Command {
 	taintCmd := &cobra.Command{
 		Use:     "taint",
 		Aliases: []string{"taint", "taints"},
@@ -49,7 +48,7 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 		SuggestFor: []string{"list"},
 		Args:       cobra.MaximumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodes, err := listNodeFilter(mgr.GetClient(), taintCmdFlags.nodeName, taintCmdFlags.nodegroupName, taintCmdFlags.nodegroupNamespace)
+			nodes, err := listNodeFilter(kclient, taintCmdFlags.nodeName, taintCmdFlags.nodegroupName, taintCmdFlags.nodegroupNamespace)
 			if err != nil {
 				return err
 			}
@@ -67,7 +66,7 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 		SuggestFor: []string{"delete"},
 		Args:       cobra.MaximumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodes, err := listNodeFilter(mgr.GetClient(), taintCmdFlags.nodeName, taintCmdFlags.nodegroupName, taintCmdFlags.nodegroupNamespace)
+			nodes, err := listNodeFilter(kclient, taintCmdFlags.nodeName, taintCmdFlags.nodegroupName, taintCmdFlags.nodegroupNamespace)
 			if err != nil {
 				return err
 			}
@@ -88,7 +87,7 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 					continue
 				}
 
-				if _, err := k8sclient.RemoveNLATaint(context.Background(), mgr.GetClient(), node); err != nil {
+				if _, err := k8sclient.RemoveNLATaint(context.Background(), kclient, node); err != nil {
 					resultColumn.data[node.Name] = fmt.Sprintf("err: %#v", err)
 					continue
 				}
@@ -126,7 +125,7 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 			}
 
 			var node v1.Node
-			if err := mgr.GetClient().Get(context.Background(), types.NamespacedName{Name: taintCmdFlags.nodeName}, &node, &client.GetOptions{}); err != nil {
+			if err := kclient.Get(context.Background(), types.NamespacedName{Name: taintCmdFlags.nodeName}, &node, &client.GetOptions{}); err != nil {
 				return err
 			}
 			if _, found := k8sclient.GetNLATaint(&node); found {
@@ -135,7 +134,7 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 				}
 			}
 
-			k8sclient.AddNLATaint(context.Background(), mgr.GetClient(), &node, time.Now(), taintValue)
+			k8sclient.AddNLATaint(context.Background(), kclient, &node, time.Now(), taintValue)
 			return nil
 		},
 	}
