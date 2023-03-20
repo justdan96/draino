@@ -30,10 +30,10 @@ var taintCmdFlags taintCommandFlags
 
 func TaintCmd(mgr manager.Manager) *cobra.Command {
 	taintCmd := &cobra.Command{
-		Use:        "taint",
-		SuggestFor: []string{"taint", "taints"},
-		Args:       cobra.MaximumNArgs(1),
-		Run:        func(cmd *cobra.Command, args []string) {},
+		Use:     "taint",
+		Aliases: []string{"taint", "taints"},
+		Args:    cobra.MinimumNArgs(1),
+		Run:     func(cmd *cobra.Command, args []string) {},
 	}
 	taintCmd.PersistentFlags().VarP(&taintCmdFlags.outputFormat, "output", "o", "output format (table|json)")
 	taintCmd.PersistentFlags().StringVarP(&taintCmdFlags.nodeName, "node-name", "", "", "name of the node")
@@ -41,18 +41,16 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 	taintCmd.PersistentFlags().StringVarP(&taintCmdFlags.nodegroupNamespace, "nodegroup-namespace", "", "", "namespace of the nodegroup")
 	cli.SetTableOutputParameters(&taintCmdFlags.tableOutputParams, taintCmd.PersistentFlags())
 
-	nodeListerFilter := BuildNodeListerFilter(mgr.GetClient(), taintCmdFlags.nodeName, taintCmdFlags.nodegroupName, taintCmdFlags.nodegroupNamespace)
-
 	listCmd := &cobra.Command{
 		Use:        "list",
 		SuggestFor: []string{"list"},
-		Args:       cobra.MaximumNArgs(1),
+		Args:       cobra.MaximumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodes, err := nodeListerFilter()
+			nodes, err := listNodeFilter(mgr.GetClient(), taintCmdFlags.nodeName, taintCmdFlags.nodegroupName, taintCmdFlags.nodegroupNamespace)
 			if err != nil {
 				return err
 			}
-			output, err := FormatNodesOutput(nodes)
+			output, err := FormatNodesOutput(nodes, nil)
 			if err != nil {
 				return err
 			}
@@ -64,30 +62,26 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 	deleteCmd := &cobra.Command{
 		Use:        "delete",
 		SuggestFor: []string{"delete"},
-		Args:       cobra.MaximumNArgs(1),
+		Args:       cobra.MaximumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			nodes, err := nodeListerFilter()
+			nodes, err := listNodeFilter(mgr.GetClient(), taintCmdFlags.nodeName, taintCmdFlags.nodegroupName, taintCmdFlags.nodegroupNamespace)
 			if err != nil {
 				return err
 			}
-			if len(nodes) == 0 {
-				fmt.Printf("No node with NLA taint\n")
-				return nil
+			resultColumn := nodeExtraColumns{
+				columnName: "Delete",
+				data:       map[string]string{},
 			}
 
-			output, err := FormatNodesOutput(nodes)
-			if err != nil {
-				return err
-			}
 			fmt.Printf("\nProcessing NLA candidate taint removal\n")
 			for _, node := range nodes {
 				t, f := k8sclient.GetNLATaint(node)
 				if t == nil || !f {
-					fmt.Printf("%v: no taint found\n", node.Name)
+					resultColumn.data[node.Name] = "no taint found"
 					continue
 				}
 				if t.Value != k8sclient.TaintDrainCandidate {
-					fmt.Printf("%v: skipping taint %s\n", node.Name, t.Value)
+					resultColumn.data[node.Name] = fmt.Sprintf("skipping taint %s", t.Value)
 					continue
 				}
 
@@ -96,6 +90,10 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 					continue
 				}
 				fmt.Printf("%v: done\n", node.Name)
+			}
+			output, err := FormatNodesOutput(nodes, []nodeExtraColumns{resultColumn})
+			if err != nil {
+				return err
 			}
 
 			fmt.Println(output)
@@ -106,7 +104,12 @@ func TaintCmd(mgr manager.Manager) *cobra.Command {
 	return taintCmd
 }
 
-func FormatNodesOutput(nodes []*v1.Node) (string, error) {
+type nodeExtraColumns struct {
+	columnName string
+	data       map[string]string
+}
+
+func FormatNodesOutput(nodes []*v1.Node, extraColumns []nodeExtraColumns) (string, error) {
 	if taintCmdFlags.outputFormat == cli.FormatJSON {
 		b, err := json.MarshalIndent(nodes, "", " ")
 		if err != nil {
@@ -114,10 +117,13 @@ func FormatNodesOutput(nodes []*v1.Node) (string, error) {
 		}
 		return string(b), nil
 	}
-
-	table := table.NewTable([]string{
+	columns := []string{
 		"Name", "NodegroupNamespace", "Nodegroup", "NLATaint",
-	},
+	}
+	for _, ext := range extraColumns {
+		columns = append(columns, ext.columnName)
+	}
+	table := table.NewTable(columns,
 		func(obj interface{}) []string {
 			node := obj.(*v1.Node)
 			ng, ngNs := NGValues(node)
@@ -125,12 +131,16 @@ func FormatNodesOutput(nodes []*v1.Node) (string, error) {
 			if taint, _ := k8sclient.GetNLATaint(node); taint != nil {
 				tValue = taint.Value
 			}
-			return []string{
+			values := []string{
 				node.Name,
 				ngNs,
 				ng,
 				tValue,
 			}
+			for _, ext := range extraColumns {
+				values = append(values, ext.data[node.Name])
+			}
+			return values
 		})
 
 	for _, n := range nodes {
@@ -143,55 +153,48 @@ func FormatNodesOutput(nodes []*v1.Node) (string, error) {
 }
 
 func NGValues(node *v1.Node) (name, ns string) {
-	if node.Labels == nil {
-		return "", ""
-	}
 	return node.Labels[kubernetes.LabelKeyNodeGroupName], node.Labels[kubernetes.LabelKeyNodeGroupNamespace]
 }
 
-func BuildNodeListerFilter(kclient client.Client, nodeName string, ngName string, ngNamespace string) func() ([]*v1.Node, error) {
-	if nodeName != "" {
-		return func() ([]*v1.Node, error) {
-			var node v1.Node
-			if err := kclient.Get(context.Background(), types.NamespacedName{Name: nodeName}, &node, &client.GetOptions{}); err != nil {
-				return nil, err
-			}
-			if _, f := k8sclient.GetNLATaint(&node); !f {
-				return nil, nil
-			}
+func listNodeFilter(kclient client.Client, nodeName string, ngName string, ngNamespace string) ([]*v1.Node, error) {
 
-			ng, ngNs := NGValues(&node)
-			if ngNamespace != "" && ngNamespace != ngNs {
-				return nil, nil
-			}
-			if ngName != "" && ngName != ng {
-				return nil, nil
-			}
-			return []*v1.Node{&node}, nil
-		}
-	}
-	return func() ([]*v1.Node, error) {
-		var nodes v1.NodeList
-		if err := kclient.List(context.Background(), &nodes, &client.ListOptions{}); err != nil {
+	if nodeName != "" {
+		var node v1.Node
+		if err := kclient.Get(context.Background(), types.NamespacedName{Name: nodeName}, &node, &client.GetOptions{}); err != nil {
 			return nil, err
 		}
-		var result []*v1.Node
-		for i := range nodes.Items {
-			node := &nodes.Items[i]
-			if _, f := k8sclient.GetNLATaint(node); !f {
-				continue
-			}
-
-			ng, ngNs := NGValues(node)
-			if ngNamespace != "" && ngNamespace != ngNs {
-				continue
-			}
-			if ngName != "" && ngName != ng {
-				continue
-			}
-			result = append(result, node)
+		if _, f := k8sclient.GetNLATaint(&node); !f {
+			return nil, nil
 		}
-		return result, nil
-	}
 
+		ng, ngNs := NGValues(&node)
+		if ngNamespace != "" && ngNamespace != ngNs {
+			return nil, nil
+		}
+		if ngName != "" && ngName != ng {
+			return nil, nil
+		}
+		return []*v1.Node{&node}, nil
+	}
+	var result []*v1.Node
+	var nodes v1.NodeList
+	if err := kclient.List(context.Background(), &nodes, &client.ListOptions{}); err != nil {
+		return nil, err
+	}
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
+		if _, f := k8sclient.GetNLATaint(node); !f {
+			continue
+		}
+
+		ng, ngNs := NGValues(node)
+		if ngNamespace != "" && ngNamespace != ngNs {
+			continue
+		}
+		if ngName != "" && ngName != ng {
+			continue
+		}
+		result = append(result, node)
+	}
+	return result, nil
 }

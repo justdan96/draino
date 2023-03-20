@@ -16,7 +16,7 @@ func main() {
 	cfg, fs := controllerruntime.ConfigFromFlags(false, false)
 	mgr, logger, _, err := controllerruntime.NewManager(cfg)
 	if err != nil {
-		fmt.Errorf("error while creating manager: %v\n", err)
+		fmt.Printf("error while creating manager: %v\n", err)
 		os.Exit(1)
 	}
 
