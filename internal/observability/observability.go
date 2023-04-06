@@ -460,7 +460,8 @@ func (s *DrainoConfigurationObserverImpl) updateGauges(metrics inScopeMetrics, m
 
 func (s *DrainoConfigurationObserverImpl) updateAutoCleanupGauges(filterNodes filteredNodeMetrics) {
 	for tagsValues, count := range filterNodes {
-		nodeFilters.WithLabelValues(tagsValues.NgName, tagsValues.NgNamespace, tagsValues.group, tagsValues.filter).Set(float64(count))
+		tags := []string{tagsValues.NgName, tagsValues.NgNamespace, tagsValues.group, tagsValues.filter}
+		nodeFilterCleaner.SetAndPlanCleanup(float64(count), tags, false, s.analysisPeriod, false)
 	}
 }
 
