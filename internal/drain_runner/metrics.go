@@ -15,7 +15,7 @@ var (
 		DrainedNodes *prometheus.CounterVec
 	}{
 		DrainedNodes: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "draino_drained_nodes_total",
+			Name: "draino_drained_nodes",
 			Help: "Number of nodes drained.",
 		}, []string{kubernetes.TagResult.Name(), kubernetes.TagFailureCause.Name(), kubernetes.TagConditions.Name(), kubernetes.TagNodegroupName.Name(), kubernetes.TagNodegroupNamePrefix.Name(), kubernetes.TagNodegroupNamespace.Name(), kubernetes.TagTeam.Name()}),
 	}
