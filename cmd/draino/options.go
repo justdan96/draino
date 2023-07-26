@@ -89,6 +89,10 @@ type Options struct {
 	excludedPodsPerNodeEstimation int
 	logEvents                     bool
 
+	//circuit breaker
+	monitorCircuitBreakerCheckPeriod          time.Duration
+	clusterAutoscalerCircuitBreakerMonitorTag string
+
 	configName          string
 	resetScopeLabel     bool
 	scopeAnalysisPeriod time.Duration
@@ -135,6 +139,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.DurationVar(&opt.eventAggregationPeriod, "event-aggregation-period", 15*time.Minute, "Period for event generation on kubernetes object.")
 	fs.DurationVar(&opt.waitBeforeDraining, "wait-before-draining", 30*time.Second, "Time to wait between moving a node in candidate status and starting the actual drain.")
 	fs.DurationVar(&opt.preActivityDefaultTimeout, "pre-activity-default-timeout", 10*time.Minute, "Default duration to wait, for a pre activity to finish, before aborting the drain. This can be overridden by an annotation.")
+	fs.DurationVar(&opt.monitorCircuitBreakerCheckPeriod, "monitor-check-circuit-breaker-period", 1*time.Minute, "Period for checking the monitors associated with circuit breakers.")
 
 	fs.StringSliceVar(&opt.nodeLabels, "node-label", []string{}, "(Deprecated) Nodes with this label will be eligible for tainting and draining. May be specified multiple times")
 	fs.StringSliceVar(&opt.doNotEvictPodControlledBy, "do-not-evict-pod-controlled-by", []string{"", kubernetes.KindStatefulSet, kubernetes.KindDaemonSet},
@@ -154,6 +159,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringVar(&opt.apiserver, "master", "", "Address of Kubernetes API server. Leave unset to use in-cluster config.")
 	fs.StringVar(&opt.drainGroupLabelKey, "drain-group-labels", "", "Comma separated list of label keys to be used to form draining groups. KEY1,KEY2,...")
 	fs.StringVar(&opt.configName, "config-name", "", "Name of the draino configuration")
+	fs.StringVar(&opt.clusterAutoscalerCircuitBreakerMonitorTag, "cluster-autoscaler-circuit-breaker-monitor-tag", "circuit-breaker", "tag on monitors used for CA circuit breaker")
 
 	// We are using some values with json content, so don't use StringSlice: https://github.com/spf13/pflag/issues/370
 	fs.StringArrayVar(&opt.conditions, "node-conditions", nil, "Nodes for which any of these conditions are true will be tainted and drained.")
@@ -225,5 +231,11 @@ func (o *Options) Validate() error {
 		return fmt.Errorf("pod warmup delay extension should be at least 1s")
 	}
 
+	if o.monitorCircuitBreakerCheckPeriod < 30*time.Second {
+		return fmt.Errorf("monitor polling for circuit breaker seems to be too aggressive")
+	}
+	if o.clusterAutoscalerCircuitBreakerMonitorTag == "" {
+		return fmt.Errorf("monitor tag for CA circuit breaker cannot be empty")
+	}
 	return nil
 }

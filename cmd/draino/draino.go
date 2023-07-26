@@ -24,6 +24,9 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/client-go/util/flowcontrol"
+
+	circuitbreaker "github.com/planetlabs/draino/internal/circuit_breaker"
 	"github.com/planetlabs/draino/internal/diagnostics"
 	"github.com/planetlabs/draino/internal/metrics"
 
@@ -117,7 +120,7 @@ func main() {
 		}
 
 		validationOptions := infraparameters.GetValidateAll()
-		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, false
+		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, true
 		if err := cfg.InfraParam.Validate(validationOptions); err != nil {
 			return fmt.Errorf("infra param validation error: %v\n", err)
 		}
@@ -135,6 +138,19 @@ func main() {
 		cs, err2 := GetKubernetesClientSet(&cfg.KubeClientConfig)
 		if err2 != nil {
 			return err2
+		}
+
+		circuitBreakerCA, errCb := circuitbreaker.NewMonitorBasedCircuitBreaker(
+			"cluster-autoscaler",
+			mgr.GetLogger(),
+			options.monitorCircuitBreakerCheckPeriod,
+			options.clusterAutoscalerCircuitBreakerMonitorTag,
+			cfg.InfraParam.KubeClusterName,
+			flowcontrol.NewFakeNeverRateLimiter(), // we don't want to try on half-open
+			circuitbreaker.Closed,
+		)
+		if errCb != nil {
+			return errCb
 		}
 
 		pods := kubernetes.NewPodWatch(ctx, cs)
@@ -294,6 +310,7 @@ func main() {
 			candidate_runner.WithRetryWall(retryWall),
 			candidate_runner.WithRateLimiter(limit.NewTypedRateLimiter(&clock.RealClock{}, kubernetes.GetRateLimitConfiguration(globalConfig.SuppliedConditions), options.drainRateLimitQPS, options.drainRateLimitBurst)),
 			candidate_runner.WithGlobalConfig(globalConfig),
+			candidate_runner.WithCircuitBreaker(circuitBreakerCA),
 		)
 		if err != nil {
 			logger.Error(err, "failed to configure the candidate_runner")
@@ -357,6 +374,11 @@ func main() {
 		mgr.Add(&RunOnce{fn: func(ctx context.Context) error {
 			return kubernetes.Await(ctx, nodes, pods, statefulSets, deployments, persistentVolumes, persistentVolumeClaims)
 		}})
+
+		if err := mgr.Add(circuitBreakerCA); err != nil {
+			logger.Error(err, "failed to setup global blocker with controller runtime")
+			return err
+		}
 
 		if err := mgr.Add(globalBlocker); err != nil {
 			logger.Error(err, "failed to setup global blocker with controller runtime")
