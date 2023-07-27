@@ -120,7 +120,7 @@ func main() {
 		}
 
 		validationOptions := infraparameters.GetValidateAll()
-		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, true
+		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, false
 		if err := cfg.InfraParam.Validate(validationOptions); err != nil {
 			return fmt.Errorf("infra param validation error: %v\n", err)
 		}
@@ -145,8 +145,8 @@ func main() {
 			mgr.GetLogger(),
 			options.monitorCircuitBreakerCheckPeriod,
 			options.clusterAutoscalerCircuitBreakerMonitorTag,
-			cfg.InfraParam.KubeClusterName,
-			flowcontrol.NewFakeNeverRateLimiter(), // we don't want to try on half-open
+			options.monitorCircuitBreakerScopeTags,
+			flowcontrol.NewFakeNeverRateLimiter(), // TODO define with CA team the value of rate limit
 			circuitbreaker.Closed,
 		)
 		if errCb != nil {
@@ -340,6 +340,7 @@ func main() {
 			diagnostics.WithGlobalConfig(globalConfig),
 			diagnostics.WithKeyGetter(keyGetter),
 			diagnostics.WithStabilityPeriodChecker(stabilityPeriodChecker),
+			diagnostics.WithCircuitBreakers(circuitBreakerCA),
 		)
 		if err != nil {
 			logger.Error(err, "failed to configure the diagnostics")

@@ -38,7 +38,7 @@ replace (
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.1.0
-	github.com/DataDog/compute-go v1.4.0
+	github.com/DataDog/compute-go v1.5.0
 	github.com/DataDog/datadog-api-client-go/v2 v2.15.0
 	github.com/DataDog/go-service-authn v1.3.0
 	github.com/antonmedv/expr v1.8.8
@@ -60,7 +60,6 @@ require (
 	golang.org/x/time v0.3.0
 	gopkg.in/DataDog/dd-trace-go.v1 v1.39.0-alpha.1.0.20221115095721-0f06e4e80273
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
-	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.26.0
 	k8s.io/apimachinery v0.26.0
 	k8s.io/client-go v8.0.0+incompatible
@@ -142,6 +141,7 @@ require (
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.26.0 // indirect
 	k8s.io/component-base v0.26.0 // indirect

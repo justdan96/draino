@@ -91,6 +91,7 @@ type Options struct {
 
 	//circuit breaker
 	monitorCircuitBreakerCheckPeriod          time.Duration
+	monitorCircuitBreakerScopeTags            []string
 	clusterAutoscalerCircuitBreakerMonitorTag string
 
 	configName          string
@@ -152,6 +153,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringSliceVar(&opt.optInPodAnnotations, "opt-in-pod-annotation", []string{}, "Pod filtering out is ignored if the pod holds one of these annotations. In a way, this makes the pod directly eligible for draino eviction. May be specified multiple times. KEY[=VALUE]")
 	fs.StringSliceVar(&opt.shortLivedPodAnnotations, "short-lived-pod-annotation", []string{}, "Pod that have a short live, just like job; we prefer let them run till the end instead of evicting them; node is cordon. May be specified multiple times. KEY[=VALUE]")
 	fs.StringSliceVar(&opt.storageClassesAllowingVolumeDeletion, "storage-class-allows-pv-deletion", []string{}, "Storage class for which persistent volume (and associated claim) deletion is allowed. May be specified multiple times.")
+	fs.StringSliceVar(&opt.monitorCircuitBreakerScopeTags, "monitor-circuit-breaker-scope-tags", []string{}, "tags use to check that the monitor group is on the good scope")
 
 	fs.StringVar(&opt.nodeLabelsExpr, "node-label-expr", "", "Nodes that match this expression will be eligible for tainting and draining.")
 	fs.StringVar(&opt.listen, "listen", ":10002", "Address at which to expose /metrics and /healthz.")
@@ -159,7 +161,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringVar(&opt.apiserver, "master", "", "Address of Kubernetes API server. Leave unset to use in-cluster config.")
 	fs.StringVar(&opt.drainGroupLabelKey, "drain-group-labels", "", "Comma separated list of label keys to be used to form draining groups. KEY1,KEY2,...")
 	fs.StringVar(&opt.configName, "config-name", "", "Name of the draino configuration")
-	fs.StringVar(&opt.clusterAutoscalerCircuitBreakerMonitorTag, "cluster-autoscaler-circuit-breaker-monitor-tag", "circuit-breaker", "tag on monitors used for CA circuit breaker")
+	fs.StringVar(&opt.clusterAutoscalerCircuitBreakerMonitorTag, "cluster-autoscaler-circuit-breaker-monitor-tag", "cluster-autoscaler", "tag on monitors used for CA circuit breaker")
 
 	// We are using some values with json content, so don't use StringSlice: https://github.com/spf13/pflag/issues/370
 	fs.StringArrayVar(&opt.conditions, "node-conditions", nil, "Nodes for which any of these conditions are true will be tainted and drained.")
@@ -236,6 +238,9 @@ func (o *Options) Validate() error {
 	}
 	if o.clusterAutoscalerCircuitBreakerMonitorTag == "" {
 		return fmt.Errorf("monitor tag for CA circuit breaker cannot be empty")
+	}
+	if len(o.monitorCircuitBreakerScopeTags) == 0 {
+		return fmt.Errorf("missing tag to scope monitor groups in circuit breaker")
 	}
 	return nil
 }

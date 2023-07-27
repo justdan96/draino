@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/DataDog/compute-go/ddclient"
 	"github.com/DataDog/compute-go/logs"
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV1"
 	"github.com/go-logr/logr"
@@ -15,17 +17,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+const (
+	DDClientConfigFile = "/etc/config/datadog-client.yaml"
+)
+
 type monitorBasedCircuitBreaker struct {
 	name         string
 	period       time.Duration
 	monitorTag   string
-	kubeCluster  string
+	scopeTags    []string
 	limiter      flowcontrol.RateLimiter
 	logger       logr.Logger
 	defaultState State
 
 	currentState State
-	ddClient     *DDClient
+	ddClient     *ddclient.Client
 }
 
 // implement 2 interfaces
@@ -59,7 +65,7 @@ func (m *monitorBasedCircuitBreaker) HalfOpenTry() bool {
 	return m.limiter.TryAccept()
 }
 
-func NewMonitorBasedCircuitBreaker(name string, logger logr.Logger, period time.Duration, monitorTag string, kubeCluster string, limiter flowcontrol.RateLimiter, defaultState State) (*monitorBasedCircuitBreaker, error) {
+func NewMonitorBasedCircuitBreaker(name string, logger logr.Logger, period time.Duration, monitorTag string, scopeTags []string, limiter flowcontrol.RateLimiter, defaultState State) (*monitorBasedCircuitBreaker, error) {
 	if defaultState == "" {
 		defaultState = Open
 	}
@@ -68,13 +74,18 @@ func NewMonitorBasedCircuitBreaker(name string, logger logr.Logger, period time.
 		name:         name,
 		period:       period,
 		monitorTag:   "tag:" + monitorTag + " tag:draino_circuit_breaker", // all monitor used for draino circuit breaker must have tag `draino_circuit_breaker`
-		kubeCluster:  kubeCluster,
+		scopeTags:    scopeTags,
 		limiter:      limiter,
-		logger:       logger.WithName("MonitorCB"),
+		logger:       logger.WithName("CircuitBreaker-" + name),
 		defaultState: defaultState,
 	}
-	var err error
-	if monitorCircuitBreaker.ddClient, err = GetDDClient(context.Background(), DDClientConfigFile); err != nil {
+
+	ddcfg, err := ddclient.GetClientConfig(DDClientConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("Creating DDClient", "config", ddcfg.ObfuscatedCopy())
+	if monitorCircuitBreaker.ddClient, err = ddclient.NewClient(context.Background(), ddcfg); err != nil {
 		return nil, err
 	}
 	return monitorCircuitBreaker, nil
@@ -114,13 +125,14 @@ func (m *monitorBasedCircuitBreaker) runCircuitBreaker() {
 
 	var oneWarning bool
 	for _, grp := range grpResponse.Groups {
-		if !m.isForCluster(grp.GroupTags) {
+		if !m.isCorrectScoped(grp.GroupTags) {
 			continue
 		}
 		status := grp.GetStatus()
 		if status != datadogV1.MONITOROVERALLSTATES_OK {
 			if status == datadogV1.MONITOROVERALLSTATES_WARN {
 				oneWarning = true
+				continue
 			}
 			m.setState(Open)
 			return
@@ -133,15 +145,23 @@ func (m *monitorBasedCircuitBreaker) runCircuitBreaker() {
 	m.setState(Closed)
 }
 
-func (m *monitorBasedCircuitBreaker) isForCluster(tags []string) bool {
-	k1 := "kubernetes_cluster:" + m.kubeCluster
-	k2 := "kube_cluster_name:" + m.kubeCluster
-	for _, tag := range tags {
-		if tag == k1 || tag == k2 {
-			return true
+func (m *monitorBasedCircuitBreaker) isCorrectScoped(checkedTags []string) bool {
+	checkedTagSet := make(map[string]struct{}, len(checkedTags))
+	for _, k := range checkedTags {
+		checkedTagSet[k] = struct{}{}
+	}
+	for _, tag := range m.scopeTags {
+		var orMatch bool
+		for _, scopeTag := range strings.Split(tag, " OR ") {
+			if _, orMatch = checkedTagSet[scopeTag]; orMatch {
+				break
+			}
+		}
+		if !orMatch {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func (m *monitorBasedCircuitBreaker) setState(state State) {

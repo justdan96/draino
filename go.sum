@@ -37,8 +37,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/DATA-DOG/go-sqlmock v1.3.3/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
 github.com/DataDog/apis v0.2.4/go.mod h1:r2kkK2f+FEbo1qyO3XV5wWHy3zFm5IOSN/EgVG+Vat0=
-github.com/DataDog/compute-go v1.4.0 h1:3IZZSGnoezjfP7a2YhJsh754qHMME0/VzehsMH5QNgU=
-github.com/DataDog/compute-go v1.4.0/go.mod h1:oLmP92AHvihV/2telZmpq081yf6sdv8YRfrrOMP3udM=
+github.com/DataDog/compute-go v1.5.0 h1:KIqHKudG+OhoL28IjkzQDUUS6eK4Ov4JybQ/TEShqc0=
+github.com/DataDog/compute-go v1.5.0/go.mod h1:drZ4oZccx1E3fAolo8vs5cZxX54fgi6Xg/YSUMDS9WY=
 github.com/DataDog/datadog-agent/pkg/obfuscate v0.0.0-20211129110424-6491aa3bf583 h1:3nVO1nQyh64IUY6BPZUpMYMZ738Pu+LsMt3E0eqqIYw=
 github.com/DataDog/datadog-agent/pkg/obfuscate v0.0.0-20211129110424-6491aa3bf583/go.mod h1:EP9f4GqaDJyP1F5jTNMtzdIpw3JpNs3rMSJOnYywCiw=
 github.com/DataDog/datadog-agent/pkg/remoteconfig/state v0.40.0-rc.2.0.20221012133526-043d202b24fc h1:FI1Vs5+KXkhqAUFTINWqG///kJahcWHyR5Vrm7adfy4=
