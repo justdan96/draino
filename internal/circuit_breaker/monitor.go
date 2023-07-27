@@ -105,7 +105,7 @@ func (m *monitorBasedCircuitBreaker) Start(ctx context.Context) error {
 
 func (m *monitorBasedCircuitBreaker) runCircuitBreaker() {
 	monitorClient := datadogV1.NewMonitorsApi(m.ddClient.APIClient)
-
+	m.logger.V(logs.ZapDebug).Info("Searching monitor group", "tags", m.monitorTag)
 	monitorGroupQuery := datadogV1.NewSearchMonitorGroupsOptionalParameters().WithQuery(m.monitorTag)
 	grpResponse, httpResp, err := monitorClient.SearchMonitorGroups(m.ddClient.Context, *monitorGroupQuery)
 	if err != nil {
