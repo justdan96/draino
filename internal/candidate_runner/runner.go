@@ -54,7 +54,7 @@ type candidateRunner struct {
 	filter              filters.Filter
 	rateLimiter         limit.TypedRateLimiter
 	suppliedConditions  []kubernetes.SuppliedCondition
-	circuitBreakers     []circuitbreaker.CircuitBreaker
+	circuitBreakers     []circuitbreaker.NamedCircuitBreaker
 
 	maxSimultaneousCandidates int
 	maxSimultaneousDrained    int

@@ -37,7 +37,7 @@ type Config struct {
 	drainBuffer            drainbuffer.DrainBuffer
 	suppliedCondition      []kubernetes.SuppliedCondition
 	stabilityPeriodChecker analyser.StabilityPeriodChecker
-	circuitBreakers        []circuitbreaker.CircuitBreaker
+	circuitBreakers        []circuitbreaker.NamedCircuitBreaker
 
 	// With defaults
 	clock               clock.Clock
@@ -162,8 +162,8 @@ func WithStabilityPeriodChecker(checker analyser.StabilityPeriodChecker) WithOpt
 	}
 }
 
-func WithCircuitBreakers(cb circuitbreaker.CircuitBreaker) WithOption {
+func WithCircuitBreakers(cb ...circuitbreaker.NamedCircuitBreaker) WithOption {
 	return func(conf *Config) {
-		conf.circuitBreakers = append(conf.circuitBreakers, cb)
+		conf.circuitBreakers = append(conf.circuitBreakers, cb...)
 	}
 }

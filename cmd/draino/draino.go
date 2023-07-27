@@ -140,17 +140,22 @@ func main() {
 			return err2
 		}
 
-		circuitBreakerCA, errCb := circuitbreaker.NewMonitorBasedCircuitBreaker(
-			"cluster-autoscaler",
-			mgr.GetLogger(),
-			options.monitorCircuitBreakerCheckPeriod,
-			options.clusterAutoscalerCircuitBreakerMonitorTag,
-			options.monitorCircuitBreakerScopeTags,
-			flowcontrol.NewFakeNeverRateLimiter(), // TODO define with CA team the value of rate limit
-			circuitbreaker.Closed,
-		)
-		if errCb != nil {
-			return errCb
+		var circuitBreakerBasedOnMonitors []circuitbreaker.NamedCircuitBreaker
+
+		for cbName, tags := range options.monitorCircuitBreakerMonitorTag {
+			cb, errCb := circuitbreaker.NewMonitorBasedCircuitBreaker(
+				cbName,
+				mgr.GetLogger(),
+				options.monitorCircuitBreakerCheckPeriod,
+				strings.Split(tags, ","),
+				options.monitorCircuitBreakerScopeTags,
+				flowcontrol.NewFakeNeverRateLimiter(), // TODO define with CA team the value of rate limit
+				circuitbreaker.Closed,
+			)
+			if errCb != nil {
+				return errCb
+			}
+			circuitBreakerBasedOnMonitors = append(circuitBreakerBasedOnMonitors, cb)
 		}
 
 		pods := kubernetes.NewPodWatch(ctx, cs)
@@ -310,7 +315,7 @@ func main() {
 			candidate_runner.WithRetryWall(retryWall),
 			candidate_runner.WithRateLimiter(limit.NewTypedRateLimiter(&clock.RealClock{}, kubernetes.GetRateLimitConfiguration(globalConfig.SuppliedConditions), options.drainRateLimitQPS, options.drainRateLimitBurst)),
 			candidate_runner.WithGlobalConfig(globalConfig),
-			candidate_runner.WithCircuitBreaker(circuitBreakerCA),
+			candidate_runner.WithCircuitBreaker(circuitBreakerBasedOnMonitors...),
 		)
 		if err != nil {
 			logger.Error(err, "failed to configure the candidate_runner")
@@ -340,7 +345,7 @@ func main() {
 			diagnostics.WithGlobalConfig(globalConfig),
 			diagnostics.WithKeyGetter(keyGetter),
 			diagnostics.WithStabilityPeriodChecker(stabilityPeriodChecker),
-			diagnostics.WithCircuitBreakers(circuitBreakerCA),
+			diagnostics.WithCircuitBreakers(circuitBreakerBasedOnMonitors...),
 		)
 		if err != nil {
 			logger.Error(err, "failed to configure the diagnostics")
@@ -375,10 +380,11 @@ func main() {
 		mgr.Add(&RunOnce{fn: func(ctx context.Context) error {
 			return kubernetes.Await(ctx, nodes, pods, statefulSets, deployments, persistentVolumes, persistentVolumeClaims)
 		}})
-
-		if err := mgr.Add(circuitBreakerCA); err != nil {
-			logger.Error(err, "failed to setup global blocker with controller runtime")
-			return err
+		for _, cb := range circuitBreakerBasedOnMonitors {
+			if err := mgr.Add(cb); err != nil {
+				logger.Error(err, "failed to setup global blocker with controller runtime")
+				return err
+			}
 		}
 
 		if err := mgr.Add(globalBlocker); err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -90,9 +91,9 @@ type Options struct {
 	logEvents                     bool
 
 	//circuit breaker
-	monitorCircuitBreakerCheckPeriod          time.Duration
-	monitorCircuitBreakerScopeTags            []string
-	clusterAutoscalerCircuitBreakerMonitorTag string
+	monitorCircuitBreakerCheckPeriod time.Duration
+	monitorCircuitBreakerScopeTags   []string
+	monitorCircuitBreakerMonitorTag  map[string]string
 
 	configName          string
 	resetScopeLabel     bool
@@ -161,7 +162,8 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringVar(&opt.apiserver, "master", "", "Address of Kubernetes API server. Leave unset to use in-cluster config.")
 	fs.StringVar(&opt.drainGroupLabelKey, "drain-group-labels", "", "Comma separated list of label keys to be used to form draining groups. KEY1,KEY2,...")
 	fs.StringVar(&opt.configName, "config-name", "", "Name of the draino configuration")
-	fs.StringVar(&opt.clusterAutoscalerCircuitBreakerMonitorTag, "cluster-autoscaler-circuit-breaker-monitor-tag", "cluster-autoscaler", "tag on monitors used for CA circuit breaker")
+
+	fs.StringToStringVar(&opt.monitorCircuitBreakerMonitorTag, "circuit-breaker-monitor-tag", map[string]string{"cluster-autoscaler": "cluster-autoscaler"}, "tag on monitors used for circuit breaker based on monitors.The Key is the CircuitBreaker name, and the values is a coma separated list of tags; example 'CA=cluster-autoscaler'")
 
 	// We are using some values with json content, so don't use StringSlice: https://github.com/spf13/pflag/issues/370
 	fs.StringArrayVar(&opt.conditions, "node-conditions", nil, "Nodes for which any of these conditions are true will be tainted and drained.")
@@ -236,8 +238,18 @@ func (o *Options) Validate() error {
 	if o.monitorCircuitBreakerCheckPeriod < 30*time.Second {
 		return fmt.Errorf("monitor polling for circuit breaker seems to be too aggressive")
 	}
-	if o.clusterAutoscalerCircuitBreakerMonitorTag == "" {
-		return fmt.Errorf("monitor tag for CA circuit breaker cannot be empty")
+	for k, tags := range o.monitorCircuitBreakerMonitorTag {
+		if k == "" {
+			return fmt.Errorf("circuit breaker cannot have an empty name")
+		}
+		if len(tags) == 0 {
+			return fmt.Errorf("circuit breaker (%s) cannot have an empty tag list", k)
+		}
+		for _, t := range strings.Split(tags, ",") {
+			if t == "" {
+				return fmt.Errorf("circuit breaker (%s) cannot have an empty tag", k)
+			}
+		}
 	}
 	if len(o.monitorCircuitBreakerScopeTags) == 0 {
 		return fmt.Errorf("missing tag to scope monitor groups in circuit breaker")

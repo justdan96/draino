@@ -34,7 +34,7 @@ type Diagnostics struct {
 	nodeSorters         candidate_runner.NodeSorters
 	nodeIteratorFactory candidate_runner.NodeIteratorFactory
 	drainSimulator      drain.DrainSimulator
-	circuitBreakers     []circuitbreaker.CircuitBreaker
+	circuitBreakers     []circuitbreaker.NamedCircuitBreaker
 
 	keyGetter groups.GroupKeyGetter
 }

@@ -18,7 +18,7 @@ const (
 	closedGaugeValue   = 0
 )
 
-func InitMetrics(Registry *prometheus.Registry) {
+func RegisterMetrics(Registry prometheus.Registerer) {
 	Registry.MustRegister(circuitBreaker)
 }
 

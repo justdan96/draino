@@ -65,15 +65,19 @@ func (m *monitorBasedCircuitBreaker) HalfOpenTry() bool {
 	return m.limiter.TryAccept()
 }
 
-func NewMonitorBasedCircuitBreaker(name string, logger logr.Logger, period time.Duration, monitorTag string, scopeTags []string, limiter flowcontrol.RateLimiter, defaultState State) (*monitorBasedCircuitBreaker, error) {
+func NewMonitorBasedCircuitBreaker(name string, logger logr.Logger, period time.Duration, monitorTags []string, scopeTags []string, limiter flowcontrol.RateLimiter, defaultState State) (*monitorBasedCircuitBreaker, error) {
 	if defaultState == "" {
 		defaultState = Open
+	}
+	allTags := append([]string{"draino_circuit_breaker"}, monitorTags...)
+	for i := 0; i < len(allTags); i++ {
+		allTags[i] = "tag:" + allTags[i]
 	}
 
 	monitorCircuitBreaker := &monitorBasedCircuitBreaker{
 		name:         name,
 		period:       period,
-		monitorTag:   "tag:" + monitorTag + " tag:draino_circuit_breaker", // all monitor used for draino circuit breaker must have tag `draino_circuit_breaker`
+		monitorTag:   strings.Join(allTags, " "),
 		scopeTags:    scopeTags,
 		limiter:      limiter,
 		logger:       logger.WithName("CircuitBreaker-" + name),

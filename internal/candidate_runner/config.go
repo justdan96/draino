@@ -37,7 +37,7 @@ type Config struct {
 	filter              filters.Filter
 	rateLimiter         limit.TypedRateLimiter
 	suppliedCondition   []kubernetes.SuppliedCondition
-	circuitBreakers     []circuitbreaker.CircuitBreaker
+	circuitBreakers     []circuitbreaker.NamedCircuitBreaker
 
 	// With defaults
 	clock                     clock.Clock
@@ -194,8 +194,8 @@ func WithGlobalConfig(globalConfig kubernetes.GlobalConfig) WithOption {
 	}
 }
 
-func WithCircuitBreaker(circuitBreaker circuitbreaker.CircuitBreaker) WithOption {
+func WithCircuitBreaker(circuitBreaker ...circuitbreaker.NamedCircuitBreaker) WithOption {
 	return func(conf *Config) {
-		conf.circuitBreakers = append(conf.circuitBreakers, circuitBreaker)
+		conf.circuitBreakers = append(conf.circuitBreakers, circuitBreaker...)
 	}
 }

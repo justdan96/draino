@@ -1,5 +1,7 @@
 package circuitbreaker
 
+import "sigs.k8s.io/controller-runtime/pkg/manager"
+
 type State string
 
 const (
@@ -27,5 +29,6 @@ type CircuitBreaker interface {
 
 type NamedCircuitBreaker interface {
 	CircuitBreaker
+	manager.Runnable
 	Name() string
 }
