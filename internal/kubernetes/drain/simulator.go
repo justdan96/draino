@@ -7,10 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
-
 	"github.com/DataDog/compute-go/logs"
-	"github.com/DataDog/disruption-budget-manager/pkg/pdbmetadata"
 	"github.com/go-logr/logr"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	corev1 "k8s.io/api/core/v1"
@@ -23,6 +20,7 @@ import (
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/analyser"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
+	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 	"github.com/planetlabs/draino/internal/kubernetes/utils"
 	"github.com/planetlabs/draino/internal/limit"
 )
@@ -244,7 +242,7 @@ func (sim *drainSimulatorImpl) checkPDBs(ctx context.Context, pod *corev1.Pod) (
 		if analyser.IsPDBBlockedByPod(ctx, pod, pdb) {
 			reason = fmt.Sprintf("PDB '%s' does not allow any disruptions", pdb.GetName())
 			if pdb.Annotations != nil {
-				if budgetCutReason, ok := pdb.Annotations[pdbmetadata.BudgetCutReasonAnnotationKey]; ok {
+				if budgetCutReason, ok := pdb.Annotations["disruption-budget-manager.datadoghq.com/no-budget-reason"]; ok {
 					reason = fmt.Sprintf("%s, reason: %s", reason, budgetCutReason)
 				}
 			}

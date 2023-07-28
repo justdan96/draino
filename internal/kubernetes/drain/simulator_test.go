@@ -5,15 +5,14 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/DataDog/disruption-budget-manager/pkg/pdbmetadata"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/planetlabs/draino/internal/kubernetes"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/planetlabs/draino/internal/kubernetes"
 )
 
 func TestSimulator_SimulateDrain(t *testing.T) {
@@ -92,7 +91,7 @@ func TestSimulator_SimulateDrain(t *testing.T) {
 			Objects: []runtime.Object{
 				createPod(createPodOpts{Name: "foo-pod1", Labels: testLabels, NodeName: "foo-node"}),
 				createPod(createPodOpts{Name: "foo-pod2", Labels: testLabels, NodeName: "foo-node"}),
-				createPDB(createPDBOpts{Name: "foo-pdb", Labels: testLabels, Annotations: map[string]string{pdbmetadata.BudgetCutReasonAnnotationKey: "lockness[test]"}, Des: 2, Healthy: 2}),
+				createPDB(createPDBOpts{Name: "foo-pdb", Labels: testLabels, Annotations: map[string]string{"disruption-budget-manager.datadoghq.com/no-budget-reason": "lockness[test]"}, Des: 2, Healthy: 2}),
 			},
 		},
 		{
