@@ -1,6 +1,6 @@
 module github.com/planetlabs/draino
 
-go 1.19
+go 1.20
 
 // in order to use the kubernetes package, we have to replace all packages that are using a local path with a proper version
 // https://github.com/kubernetes/kubernetes/blob/v1.23.3/go.mod
