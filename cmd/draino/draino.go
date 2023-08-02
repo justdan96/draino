@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DataDog/compute-go/ddclient"
+	"github.com/DataDog/compute-go/ddclient/monitor"
 	"k8s.io/client-go/util/flowcontrol"
 
 	circuitbreaker "github.com/planetlabs/draino/internal/circuit_breaker"
@@ -120,7 +122,7 @@ func main() {
 		}
 
 		validationOptions := infraparameters.GetValidateAll()
-		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, false
+		validationOptions.Datacenter, validationOptions.CloudProvider, validationOptions.CloudProviderProject, validationOptions.KubeClusterName = false, false, false, true
 		if err := cfg.InfraParam.Validate(validationOptions); err != nil {
 			return fmt.Errorf("infra param validation error: %v\n", err)
 		}
@@ -140,22 +142,9 @@ func main() {
 			return err2
 		}
 
-		var circuitBreakerBasedOnMonitors []circuitbreaker.NamedCircuitBreaker
-
-		for cbName, tags := range options.monitorCircuitBreakerMonitorTag {
-			cb, errCb := circuitbreaker.NewMonitorBasedCircuitBreaker(
-				cbName,
-				mgr.GetLogger(),
-				options.monitorCircuitBreakerCheckPeriod,
-				strings.Split(tags, ","),
-				options.monitorCircuitBreakerScopeTags,
-				flowcontrol.NewFakeNeverRateLimiter(), // TODO define with CA team the value of rate limit
-				circuitbreaker.Closed,
-			)
-			if errCb != nil {
-				return errCb
-			}
-			circuitBreakerBasedOnMonitors = append(circuitBreakerBasedOnMonitors, cb)
+		circuitBreakerBasedOnMonitors, errCb := setupCircuitBreakers(ctx, mgr, options, cfg.InfraParam.KubeClusterName)
+		if errCb != nil {
+			return errCb
 		}
 
 		pods := kubernetes.NewPodWatch(ctx, cs)
@@ -414,6 +403,42 @@ func main() {
 	if err != nil {
 		zap.L().Fatal("Program exit on error", zap.Error(err))
 	}
+}
+
+func setupCircuitBreakers(ctx context.Context, mgr manager.Manager, options *Options, kubeClusterName string) (circuitBreakerBasedOnMonitors []circuitbreaker.NamedCircuitBreaker, err error) {
+	ddclient, err := ddclient.NewDefaultClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for cbName, tags := range options.monitorCircuitBreakerMonitorTag {
+		scopeExpression := fmt.Sprintf("kubernetes_cluster:%s OR kube_cluster_name:%s", kubeClusterName, kubeClusterName)
+
+		monitorForCircuitBreaker := monitor.NewGroupsSearch(
+			mgr.GetLogger(),
+			*ddclient,
+			monitor.GroupsSearchOptions{}.
+				WithName(cbName).
+				WithMonitorTags(strings.Split(tags, ",")...).
+				WithRawGroupExpression(scopeExpression).
+				WithSkipMuted(true),
+		)
+
+		cb, errCb := circuitbreaker.NewMonitorBasedCircuitBreaker(
+			cbName,
+			mgr.GetLogger(),
+			options.monitorCircuitBreakerCheckPeriod,
+			monitorForCircuitBreaker,
+			flowcontrol.NewTokenBucketRateLimiter(options.circuitBreakerRateLimitQPS, 1),
+			circuitbreaker.Closed,
+		)
+
+		if errCb != nil {
+			return nil, errCb
+		}
+		circuitBreakerBasedOnMonitors = append(circuitBreakerBasedOnMonitors, cb)
+	}
+	return circuitBreakerBasedOnMonitors, nil
 }
 
 // launchTracerAndProfiler will initialize and run the tracer and the endpoint for the profiler

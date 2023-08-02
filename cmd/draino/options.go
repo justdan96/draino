@@ -9,6 +9,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
 
+	circuitbreaker "github.com/planetlabs/draino/internal/circuit_breaker"
 	"github.com/planetlabs/draino/internal/kubernetes"
 	"github.com/planetlabs/draino/internal/kubernetes/index"
 )
@@ -92,8 +93,8 @@ type Options struct {
 
 	//circuit breaker
 	monitorCircuitBreakerCheckPeriod time.Duration
-	monitorCircuitBreakerScopeTags   []string
 	monitorCircuitBreakerMonitorTag  map[string]string
+	circuitBreakerRateLimitQPS       float32
 
 	configName          string
 	resetScopeLabel     bool
@@ -154,7 +155,6 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringSliceVar(&opt.optInPodAnnotations, "opt-in-pod-annotation", []string{}, "Pod filtering out is ignored if the pod holds one of these annotations. In a way, this makes the pod directly eligible for draino eviction. May be specified multiple times. KEY[=VALUE]")
 	fs.StringSliceVar(&opt.shortLivedPodAnnotations, "short-lived-pod-annotation", []string{}, "Pod that have a short live, just like job; we prefer let them run till the end instead of evicting them; node is cordon. May be specified multiple times. KEY[=VALUE]")
 	fs.StringSliceVar(&opt.storageClassesAllowingVolumeDeletion, "storage-class-allows-pv-deletion", []string{}, "Storage class for which persistent volume (and associated claim) deletion is allowed. May be specified multiple times.")
-	fs.StringSliceVar(&opt.monitorCircuitBreakerScopeTags, "monitor-circuit-breaker-scope-tags", []string{}, "tags use to check that the monitor group is on the good scope")
 
 	fs.StringVar(&opt.nodeLabelsExpr, "node-label-expr", "", "Nodes that match this expression will be eligible for tainting and draining.")
 	fs.StringVar(&opt.listen, "listen", ":10002", "Address at which to expose /metrics and /healthz.")
@@ -163,7 +163,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringVar(&opt.drainGroupLabelKey, "drain-group-labels", "", "Comma separated list of label keys to be used to form draining groups. KEY1,KEY2,...")
 	fs.StringVar(&opt.configName, "config-name", "", "Name of the draino configuration")
 
-	fs.StringToStringVar(&opt.monitorCircuitBreakerMonitorTag, "circuit-breaker-monitor-tag", map[string]string{"cluster-autoscaler": "cluster-autoscaler"}, "tag on monitors used for circuit breaker based on monitors.The Key is the CircuitBreaker name, and the values is a coma separated list of tags; example 'CA=cluster-autoscaler'")
+	fs.StringToStringVar(&opt.monitorCircuitBreakerMonitorTag, "circuit-breaker-monitor-tag", map[string]string{"cluster-autoscaler": "draino-circuit-breaker,cluster-autoscaler"}, "tag on monitors used for circuit breaker based on monitors.The Key is the CircuitBreaker name, and the values is a coma separated list of tags; example 'CA=draino_circuit_breaker,cluster-autoscaler'")
 
 	// We are using some values with json content, so don't use StringSlice: https://github.com/spf13/pflag/issues/370
 	fs.StringArrayVar(&opt.conditions, "node-conditions", nil, "Nodes for which any of these conditions are true will be tainted and drained.")
@@ -176,6 +176,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.Float32Var(&opt.drainRateLimitQPS, "drain-rate-limit-qps", kubernetes.DefaultDrainRateLimitQPS, "Maximum number of node drains per seconds per condition")
 	fs.IntVar(&opt.drainRateLimitBurst, "drain-rate-limit-burst", kubernetes.DefaultDrainRateLimitBurst, "Maximum number of parallel drains within a timeframe")
 	fs.Float32Var(&opt.simulationRateLimitingRatio, "drain-sim-rate-limit-ratio", 0.7, "Which ratio of the overall kube client rate limiting should be used by the drain simulation. 1.0 means that it will use the same.")
+	fs.Float32Var(&opt.circuitBreakerRateLimitQPS, "circuit-breaker-rate-limit-qps", circuitbreaker.DefaultRateLimitQPS, "Maximum number of drain attempts when circuit breaker is half-open")
 
 	return &opt, &fs
 }
@@ -250,9 +251,6 @@ func (o *Options) Validate() error {
 				return fmt.Errorf("circuit breaker (%s) cannot have an empty tag", k)
 			}
 		}
-	}
-	if len(o.monitorCircuitBreakerScopeTags) == 0 {
-		return fmt.Errorf("missing tag to scope monitor groups in circuit breaker")
 	}
 	return nil
 }
