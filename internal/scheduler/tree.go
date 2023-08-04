@@ -1,9 +1,14 @@
 package scheduler
 
 import (
+	"context"
+	"fmt"
 	url2 "net/url"
 	"sort"
 	"strings"
+	"time"
+
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 // ItemProvider is in charge of delivering items
@@ -29,6 +34,8 @@ type SortingTree[T any] interface {
 	// AsDotGraph export the Tree as a digraph in dot format
 	// if url is set the output is a clickable URL to dreampuf.github.io/GraphvizOnline/
 	AsDotGraph(url bool, renderer ItemRenderer[T]) string
+	// AsTrace export the tree as a DD trace
+	AsTrace(groupName string, renderer ItemRenderer[T])
 }
 
 // bucketSlice helps to isolate items in buckets according to the sorting function.
@@ -117,6 +124,51 @@ func (s *sortingTreeImpl[T]) AsDotGraph(url bool, renderer ItemRenderer[T]) stri
 	}
 	t := &url2.URL{Path: g.String(renderer)}
 	return "https://dreampuf.github.io/GraphvizOnline/#" + strings.TrimLeft(t.String(), "./")
+}
+
+func (s *sortingTreeImpl[T]) AsTrace(groupName string, renderer ItemRenderer[T]) {
+	// If the root doesn't have any children and an empty raw Collection, it means that there were no nodes that passed the filter.
+	if s.root.children == nil && len(s.root.rawCollection) == 0 {
+		return
+	}
+	span, ctx := tracer.StartSpanFromContext(context.Background(), "CandidateRunnerGroupTrace")
+	defer span.Finish()
+	span.SetTag("group", groupName)
+	buildTrace(ctx, s.root, renderer, 0)
+}
+
+func buildTrace[T any](ctx context.Context, node *node[T], renderer ItemRenderer[T], layer int) {
+	// Make sure we'll get the whole tree
+	node.expand()
+	if node.isLeaf() {
+		traceLeaf(ctx, node.rawCollection, renderer)
+		return
+	}
+
+	span, ctx := tracer.StartSpanFromContext(ctx, fmt.Sprintf("Sorter %d", layer))
+	defer span.Finish()
+
+	span.SetTag("NumberOfChildren", len(node.children))
+	span.SetTag("RemainingSorters", len(node.sorters))
+	for _, child := range node.children {
+		buildTrace(ctx, child, renderer, layer+1)
+	}
+}
+
+func traceLeaf[T any](ctx context.Context, nodes []T, renderer ItemRenderer[T]) {
+	ch := make(chan struct{})
+	for _, node := range nodes {
+		go func(c chan struct{}, n T) {
+			span, _ := tracer.StartSpanFromContext(ctx, renderer(n))
+			defer span.Finish()
+			time.Sleep(5 * time.Millisecond)
+			c <- struct{}{}
+		}(ch, node)
+	}
+
+	for range nodes {
+		<-ch
+	}
 }
 
 // node of the sortingTreeImpl

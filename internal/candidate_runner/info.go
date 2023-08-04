@@ -70,6 +70,7 @@ type CandidateInfo interface {
 // CandidateRunnerInfo Read only interface that gives access to runtime information collected in the DataInfo
 type CandidateRunnerInfo interface {
 	GetLastNodeIteratorGraph(url bool) string
+	GenerateLastNodeIteratorTrace(string)
 }
 
 func (d *DataInfo) GetLastNodeIteratorGraph(url bool) string {
@@ -78,6 +79,14 @@ func (d *DataInfo) GetLastNodeIteratorGraph(url bool) string {
 	}
 	g := d.lastNodeIterator.(scheduler.SortingTree[*v1.Node])
 	return g.AsDotGraph(url, func(n *v1.Node) string { return n.GetName() })
+}
+
+func (d *DataInfo) GenerateLastNodeIteratorTrace(groupName string) {
+	if d.lastNodeIterator == nil {
+		return
+	}
+	g := d.lastNodeIterator.(scheduler.SortingTree[*v1.Node])
+	g.AsTrace(groupName, func(n *v1.Node) string { return n.GetName() })
 }
 
 func (d *DataInfo) importLongLastingData(info DataInfo) {

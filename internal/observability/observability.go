@@ -265,6 +265,7 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 			// Let's print the queue size
 			s.logger.Info("queueNodeToBeUpdated", zap.Int("len", s.queueNodeToBeUpdated.Len()))
 
+			s.ProduceDrainGroupTraces()
 			s.ProduceGroupRunnerMetrics()
 
 			// Let's update the nodes metadata
@@ -397,6 +398,30 @@ func (s *DrainoConfigurationObserverImpl) getServiceTagForNode(node *v1.Node) (s
 	}
 
 	return
+}
+
+func (s *DrainoConfigurationObserverImpl) ProduceDrainGroupTraces() {
+	runnerInfo := s.runnerInfoGetter.GetRunnerInfo()
+	ch := make(chan struct{})
+	for group, info := range runnerInfo {
+		go func(group groups.GroupKey, info groups.RunnerInfo) {
+			di, ok := info.Data.Get(candidate_runner.CandidateRunnerInfoKey)
+			if !ok {
+				return
+			}
+			candidateRunnerInfo, ok := (di).(candidate_runner.DataInfo)
+			if !ok {
+				return
+			}
+
+			candidateRunnerInfo.GenerateLastNodeIteratorTrace(string(group))
+			ch <- struct{}{}
+		}(group, info)
+	}
+
+	for range runnerInfo {
+		<-ch
+	}
 }
 
 func (s *DrainoConfigurationObserverImpl) ProduceGroupRunnerMetrics() {
