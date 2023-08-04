@@ -163,7 +163,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringVar(&opt.drainGroupLabelKey, "drain-group-labels", "", "Comma separated list of label keys to be used to form draining groups. KEY1,KEY2,...")
 	fs.StringVar(&opt.configName, "config-name", "", "Name of the draino configuration")
 
-	fs.StringToStringVar(&opt.monitorCircuitBreakerMonitorTags, "circuit-breaker-monitor-tags", map[string]string{"cluster-autoscaler": "draino-circuit-breaker,cluster-autoscaler"}, "tags on monitors used for circuit breakers based on monitors. The keys are circuit breaker names, and the values are comma-separated lists of tags. Repeat the flag for multiple key-value pairs, i.e., multiple circuit breakers.")
+	fs.StringToStringVar(&opt.monitorCircuitBreakerMonitorTags, "circuit-breaker-monitor-tags", map[string]string{}, "tags on monitors used for circuit breakers based on monitors. The keys are circuit breaker names, and the values are comma-separated lists of tags. Repeat the flag for multiple key-value pairs, i.e., multiple circuit breakers.")
 
 	// We are using some values with json content, so don't use StringSlice: https://github.com/spf13/pflag/issues/370
 	fs.StringArrayVar(&opt.conditions, "node-conditions", nil, "Nodes for which any of these conditions are true will be tainted and drained.")

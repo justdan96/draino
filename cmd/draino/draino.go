@@ -406,6 +406,10 @@ func main() {
 }
 
 func setupCircuitBreakers(ctx context.Context, mgr manager.Manager, options *Options, kubeClusterName string) (circuitBreakerBasedOnMonitors []circuitbreaker.NamedCircuitBreaker, err error) {
+	if len(options.monitorCircuitBreakerMonitorTags) == 0 {
+		return nil, nil
+	}
+
 	ddclient, err := ddclient.NewDefaultClient(ctx)
 	if err != nil {
 		return nil, err
