@@ -6,39 +6,39 @@ go 1.20
 // https://github.com/kubernetes/kubernetes/blob/v1.23.3/go.mod
 // https://suraj.io/post/2021/05/k8s-import/
 replace (
-	k8s.io/api => k8s.io/api v0.26.0
-	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.26.0
-	k8s.io/apimachinery => k8s.io/apimachinery v0.26.0
-	k8s.io/apiserver => k8s.io/apiserver v0.26.0
-	k8s.io/cli-runtime => k8s.io/cli-runtime v0.26.0
-	k8s.io/client-go => k8s.io/client-go v0.26.0
-	k8s.io/cloud-provider => k8s.io/cloud-provider v0.26.0
-	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap v0.26.0
-	k8s.io/code-generator => k8s.io/code-generator v0.26.0
-	k8s.io/component-base => k8s.io/component-base v0.26.0
-	k8s.io/component-helpers => k8s.io/component-helpers v0.26.0
-	k8s.io/controller-manager => k8s.io/controller-manager v0.26.0
-	k8s.io/cri-api => k8s.io/cri-api v0.26.0
-	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.26.0
-	k8s.io/dynamic-resource-allocation => k8s.io/dynamic-resource-allocation v0.26.0
-	k8s.io/kube-aggregator => k8s.io/kube-aggregator v0.26.0
-	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager v0.26.0
-	k8s.io/kube-proxy => k8s.io/kube-proxy v0.26.0
-	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.26.0
-	k8s.io/kubectl => k8s.io/kubectl v0.26.0
-	k8s.io/kubelet => k8s.io/kubelet v0.26.0
-	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.26.0
-	k8s.io/metrics => k8s.io/metrics v0.26.0
-	k8s.io/mount-utils => k8s.io/mount-utils v0.26.0
-	k8s.io/pod-security-admission => k8s.io/pod-security-admission v0.26.0
-	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.26.0
-	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.26.0
-	k8s.io/sample-controller => k8s.io/sample-controller v0.26.0
+	k8s.io/api => k8s.io/api v0.26.7
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.26.7
+	k8s.io/apimachinery => k8s.io/apimachinery v0.26.7
+	k8s.io/apiserver => k8s.io/apiserver v0.26.7
+	k8s.io/cli-runtime => k8s.io/cli-runtime v0.26.7
+	k8s.io/client-go => k8s.io/client-go v0.26.7
+	k8s.io/cloud-provider => k8s.io/cloud-provider v0.26.7
+	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap v0.26.7
+	k8s.io/code-generator => k8s.io/code-generator v0.26.7
+	k8s.io/component-base => k8s.io/component-base v0.26.7
+	k8s.io/component-helpers => k8s.io/component-helpers v0.26.7
+	k8s.io/controller-manager => k8s.io/controller-manager v0.26.7
+	k8s.io/cri-api => k8s.io/cri-api v0.26.7
+	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.26.7
+	k8s.io/dynamic-resource-allocation => k8s.io/dynamic-resource-allocation v0.26.7
+	k8s.io/kube-aggregator => k8s.io/kube-aggregator v0.26.7
+	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager v0.26.7
+	k8s.io/kube-proxy => k8s.io/kube-proxy v0.26.7
+	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.26.7
+	k8s.io/kubectl => k8s.io/kubectl v0.26.7
+	k8s.io/kubelet => k8s.io/kubelet v0.26.7
+	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.26.7
+	k8s.io/metrics => k8s.io/metrics v0.26.7
+	k8s.io/mount-utils => k8s.io/mount-utils v0.26.7
+	k8s.io/pod-security-admission => k8s.io/pod-security-admission v0.26.7
+	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.26.7
+	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.26.7
+	k8s.io/sample-controller => k8s.io/sample-controller v0.26.7
 )
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.1.0
-	github.com/DataDog/compute-go v1.8.3
+	github.com/DataDog/compute-go v1.9.0
 	github.com/DataDog/datadog-api-client-go/v2 v2.15.0
 	github.com/DataDog/go-service-authn v1.3.0
 	github.com/antonmedv/expr v1.8.8
@@ -85,6 +85,7 @@ require (
 	github.com/DataDog/datadog-go/v5 v5.3.0 // indirect
 	github.com/DataDog/go-libddwaf v1.2.0 // indirect
 	github.com/DataDog/go-tuf v0.3.0--fix-localmeta-fork // indirect
+	github.com/DataDog/gostackparse v0.5.0 // indirect
 	github.com/DataDog/sketches-go v1.3.0 // indirect
 	github.com/DataDog/zstd v1.5.2 // indirect
 	github.com/Microsoft/go-winio v0.6.0 // indirect
@@ -108,6 +109,7 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
+	github.com/google/pprof v0.0.0-20230509042627-b1315fad0c5a // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/heptiolabs/healthcheck v0.0.0-20211123025425-613501dd5deb // indirect
 	github.com/imdario/mergo v0.3.13 // indirect
@@ -126,6 +128,8 @@ require (
 	github.com/prometheus/client_model v0.4.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
+	github.com/richardartoul/molecule v1.0.1-0.20221107223329-32cfee06a052 // indirect
+	github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72 // indirect
 	github.com/tinylib/msgp v1.1.6 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
