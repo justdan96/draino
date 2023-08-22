@@ -64,7 +64,7 @@ func (_ *PreActivitiesPreProcessor) GetName() string {
 	return "PreActivitiesPreProcessor"
 }
 
-func preActivityStateConverter(val string) (string, error) {
+func PreActivityStateConverter(val string) (string, error) {
 	switch val {
 	case PreActivityAnnotationNotStarted, PreActivityAnnotationProcessing, PreActivityAnnotationFailed, PreActivityAnnotationDone:
 		return val, nil
@@ -148,7 +148,7 @@ type preActivity struct {
 // getActivities will search for all pre activity annotations in the whole chain (node -> pod -> controller).
 // Furthermore, it's going to evaluate the timeout annotation for the same activity
 func (pre *PreActivitiesPreProcessor) getActivities(ctx context.Context, node *corev1.Node) (map[string]*preActivity, error) {
-	activitySearch, err := kubernetes.NewSearch(ctx, pre.podIndexer, nil, pre.store, preActivityStateConverter, node, PreActivityAnnotationPrefix, false, false, kubernetes.GetPrefixedAnnotation)
+	activitySearch, err := kubernetes.NewSearch(ctx, pre.podIndexer, nil, pre.store, PreActivityStateConverter, node, PreActivityAnnotationPrefix, false, false, kubernetes.GetPrefixedAnnotation)
 	if err != nil {
 		return nil, err
 	}

@@ -369,7 +369,7 @@ func TestPreActivitiesPreProcessor_Reset(t *testing.T) {
 			var node corev1.Node
 			err = wrapper.GetManagerClient().Get(ctx, types.NamespacedName{Name: tt.Node.Name}, &node)
 			assert.NoError(t, err, "Failed to refresh node")
-			result, err := kubernetes.NewSearch(ctx, idx, nil, store, preActivityStateConverter, &node, PreActivityAnnotationPrefix, false, false, kubernetes.GetPrefixedAnnotation)
+			result, err := kubernetes.NewSearch(ctx, idx, nil, store, PreActivityStateConverter, &node, PreActivityAnnotationPrefix, false, false, kubernetes.GetPrefixedAnnotation)
 			for _, item := range result.Results() {
 				assert.Equal(t, PreActivityAnnotationNotStarted, item.Value, "Did not properly reset pre-activity for: %v", item.Source)
 			}
