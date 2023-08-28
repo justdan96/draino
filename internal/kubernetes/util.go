@@ -241,8 +241,8 @@ func GetPodTagsValues(pod *core.Pod) PodTagsValues {
 	service := pod.Labels["service"]
 
 	return PodTagsValues{
-		Team:        team,
-		Service:     service,
+		Team:    team,
+		Service: service,
 	}
 }
 

@@ -31,6 +31,7 @@ import (
 	circuitbreaker "github.com/planetlabs/draino/internal/circuit_breaker"
 	"github.com/planetlabs/draino/internal/diagnostics"
 	"github.com/planetlabs/draino/internal/metrics"
+	"github.com/planetlabs/draino/internal/sync"
 
 	"github.com/DataDog/compute-go/controllerruntime"
 	"github.com/DataDog/compute-go/infraparameters"
@@ -383,6 +384,13 @@ func main() {
 
 		if err := mgr.Add(scopeObserver); err != nil {
 			logger.Error(err, "failed to setup scope observer with controller runtime")
+			return err
+		}
+
+		nlaTaintSynchronizer := sync.NewNLATaintSynchronizer(mgr.GetClient(), logger, clock.RealClock{}, indexer, filtersDef.DrainPodFilter)
+		nodeTaintSyncRec := sync.NewNodeTaintSyncReconciler(mgr.GetClient(), nlaTaintSynchronizer, logger)
+		if err := nodeTaintSyncRec.SetupWithManager(mgr); err != nil {
+			logger.Error(err, "failed to setup node taint sync reconciler")
 			return err
 		}
 
