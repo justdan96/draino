@@ -26,10 +26,12 @@ import (
 	"go.uber.org/zap"
 	core "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 )
 
 type NodeLabelFilterFunc func(o interface{}) bool
+type NodeAndPodsFilterFunc func(*core.Node, []*core.Pod) bool
 
 // NewNodeLabelFilter returns a filter that returns true if the supplied node satisfies the boolean expression
 func NewNodeLabelFilter(expressionStr string, log *zap.Logger) (NodeLabelFilterFunc, error) {
@@ -61,6 +63,47 @@ func NewNodeLabelFilter(expressionStr string, log *zap.Logger) (NodeLabelFilterF
 		result, err := expr.Run(expression, parameters)
 		if err != nil {
 			log.Error(fmt.Sprintf("Could not parse expression: %v", err))
+		}
+		return result.(bool)
+	}, nil
+}
+
+func NewNodeAndPodsFilter(expressionStr string, log *zap.Logger) (NodeAndPodsFilterFunc, error) {
+	expression, err := expr.Compile(expressionStr)
+	if err != nil && expressionStr != "" {
+		return nil, err
+	}
+
+	return func(node *core.Node, pods []*core.Pod) bool {
+		if expressionStr == "" {
+			return true
+		}
+
+		nodeUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(node)
+		if err != nil {
+			log.Error("Could not convert node to unstructured", zap.Error(err))
+			return false
+		}
+
+		podsUnstruct := make([]interface{}, len(pods))
+		for i, pod := range pods {
+			podUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod)
+			if err != nil {
+				log.Error("Could not convert pod to unstructured", zap.Error(err))
+				return false
+			}
+			podsUnstruct[i] = podUnstruct
+		}
+
+		parameters := map[string]interface{}{
+			"node": nodeUnstruct,
+			"pods": podsUnstruct,
+		}
+
+		result, err := expr.Run(expression, parameters)
+		if err != nil {
+			log.Error("Could not parse expression", zap.Error(err))
+			return false
 		}
 		return result.(bool)
 	}, nil

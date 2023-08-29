@@ -35,6 +35,7 @@ type Options struct {
 	schedulingRetryBackoffDelay time.Duration
 	nodeLabels                  []string
 	nodeLabelsExpr              string
+	nodeAndPodsExpr             string
 
 	// Eviction filtering flags
 	skipDrain                 bool
@@ -157,6 +158,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringSliceVar(&opt.storageClassesAllowingVolumeDeletion, "storage-class-allows-pv-deletion", []string{}, "Storage class for which persistent volume (and associated claim) deletion is allowed. May be specified multiple times.")
 
 	fs.StringVar(&opt.nodeLabelsExpr, "node-label-expr", "", "Nodes that match this expression will be eligible for tainting and draining.")
+	fs.StringVar(&opt.nodeAndPodsExpr, "node-and-pods-expr", "", "If a node and its pods match this expression, the node will be eligible for tainting and draining.")
 	fs.StringVar(&opt.listen, "listen", ":10002", "Address at which to expose /metrics and /healthz.")
 	fs.StringVar(&opt.kubecfg, "kubeconfig", "", "Path to kubeconfig file. Leave unset to use in-cluster config.")
 	fs.StringVar(&opt.apiserver, "master", "", "Address of Kubernetes API server. Leave unset to use in-cluster config.")

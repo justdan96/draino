@@ -31,10 +31,123 @@ import (
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestNodeAndPodsFilter(t *testing.T) {
+	log, _ := zap.NewDevelopment()
+	expression := `not (
+(node.metadata.labels["nodegroups.datadoghq.com/namespace"] ?? "") endsWith "-exception1"
+or any(["exception2-", "exception-3-", "exception4"], (node.metadata.labels["nodegroups.datadoghq.com/name"] ?? "") startsWith #)
+or
+any(pods, (.metadata.labels["service"] ?? "") == "exception5")
+and (node.metadata.labels["node-lifecycle.datadoghq.com/enabled"] ?? "") == "false"
+or any(pods, (.metadata.labels["app"] ?? "") startsWith "exception6"))
+`
+	filter, err := NewNodeAndPodsFilter(expression, log)
+	if err != nil {
+		t.Fatalf("Filter expression: %v, did not compile", err)
+	}
+	makeNodeWithLabelAmongOther := func(k, v string) *core.Node {
+		return &core.Node{
+			ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{
+					"other": "label",
+					k:       v,
+				},
+			},
+		}
+	}
+	makePodsWithLabel := func(k, v string) *core.Pod {
+		return &core.Pod{
+			ObjectMeta: meta.ObjectMeta{
+				Labels: map[string]string{
+					k: v,
+				},
+			},
+		}
+	}
+	cases := []struct {
+		name string
+		node *core.Node
+		pods []*core.Pod
+		ok   bool
+	}{
+		{
+			name: "exception1",
+			node: makeNodeWithLabelAmongOther("nodegroups.datadoghq.com/namespace", "foo-exception1"),
+			pods: nil,
+			ok:   false,
+		},
+		{
+			name: "exception2",
+			node: makeNodeWithLabelAmongOther("nodegroups.datadoghq.com/name", "exception2-foo"),
+			pods: nil,
+			ok:   false,
+		},
+		{
+			name: "exception3",
+			node: makeNodeWithLabelAmongOther("nodegroups.datadoghq.com/name", "exception-3-foo"),
+			pods: nil,
+			ok:   false,
+		},
+		{
+			name: "exception4",
+			node: makeNodeWithLabelAmongOther("nodegroups.datadoghq.com/name", "exception4"),
+			pods: nil,
+			ok:   false,
+		},
+		{
+			name: "exception5",
+			node: makeNodeWithLabelAmongOther("node-lifecycle.datadoghq.com/enabled", "false"),
+			pods: []*core.Pod{makePodsWithLabel("service", "exception5")},
+			ok:   false,
+		},
+		{
+			name: "exception5 partial opt in",
+			node: makeNodeWithLabelAmongOther("foo", "bar"),
+			pods: []*core.Pod{makePodsWithLabel("service", "exception5")},
+			ok:   true,
+		},
+		{
+			name: "exception6",
+			node: makeNodeWithLabelAmongOther("foo", "bar"),
+			pods: []*core.Pod{makePodsWithLabel("app", "exception6")},
+			ok:   false,
+		},
+		{
+			name: "exception6 prefix",
+			node: makeNodeWithLabelAmongOther("foo", "bar"),
+			pods: []*core.Pod{makePodsWithLabel("app", "exception6-prefix")},
+			ok:   false,
+		},
+		{
+			name: "not an exception no pods",
+			node: makeNodeWithLabelAmongOther("foo", "bar"),
+			ok:   true,
+		},
+		{
+			name: "not an exception with pod",
+			node: makeNodeWithLabelAmongOther("foo", "bar"),
+			pods: []*core.Pod{makePodsWithLabel("a", "b")},
+			ok:   true,
+		},
+		{
+			name: "not an exception with pod without labels",
+			node: makeNodeWithLabelAmongOther("foo", "bar"),
+			pods: []*core.Pod{},
+			ok:   true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+
+			ok := filter(tc.node, tc.pods)
+			assert.Equal(t, tc.ok, ok)
+		})
+	}
+}
+
 func TestNodeLabelFilter(t *testing.T) {
 	cases := []struct {
 		name         string
-		logicType    string
 		obj          interface{}
 		expression   string
 		passesFilter bool
@@ -224,8 +337,7 @@ func TestNodeLabelFilter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			filter, err := NewNodeLabelFilter(tc.expression, log)
 			if err != nil {
-				t.Errorf("Filter expression: %v, did not compile", err)
-				t.FailNow()
+				t.Fatalf("Filter expression: %v, did not compile", err)
 			}
 
 			passesFilter := filter(tc.obj)

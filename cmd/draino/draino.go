@@ -57,7 +57,7 @@ import (
 	drainoklog "github.com/planetlabs/draino/internal/kubernetes/klog"
 	"github.com/planetlabs/draino/internal/limit"
 	"github.com/planetlabs/draino/internal/observability"
-	protector "github.com/planetlabs/draino/internal/protector"
+	"github.com/planetlabs/draino/internal/protector"
 
 	client "k8s.io/client-go/kubernetes"
 	"k8s.io/utils/clock"
@@ -175,6 +175,7 @@ func main() {
 			ShortLivedPodAnnotations:               options.shortLivedPodAnnotations,
 			NodeLabels:                             options.nodeLabels,
 			NodeLabelsExpr:                         options.nodeLabelsExpr,
+			NodeAndPodsExpr:                        options.nodeAndPodsExpr,
 		}
 
 		filtersDef, err := kubernetes.GenerateFilters(cs, store, zlog, filteringOptions)

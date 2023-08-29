@@ -544,6 +544,15 @@ func (s *DrainoConfigurationObserverImpl) getConfigLabelUpdate(node *v1.Node) (s
 		return "", false, err
 	}
 	kubernetes.LogForVerboseNode(s.logger, node, "InScope information", zap.Bool("inScope", inScope), zap.String("reason", reason))
+
+	inScopeNext, err := s.IsInScopeNext(node)
+	if err != nil {
+		s.logger.Info("failed to run new filter", zap.Error(err))
+	} else if inScopeNext != inScope {
+		s.logger.Info("in scope would change with new filter", zap.String("nodeName", node.Name),
+			zap.Bool("inScope", inScope), zap.Bool("inScopeNext", inScopeNext))
+	}
+
 	if inScope {
 		configs = append(configs, s.globalConfig.ConfigName)
 	}
@@ -615,6 +624,16 @@ func (s *DrainoConfigurationObserverImpl) IsInScope(node *v1.Node) (inScope bool
 		}
 	}
 	return true, "", nil
+}
+
+func (s *DrainoConfigurationObserverImpl) IsInScopeNext(node *v1.Node) (bool, error) {
+	pods, err := s.runtimeObjectStore.Pods().ListPodsForNode(node.Name)
+	if err != nil {
+		return false, fmt.Errorf("cannot ListPodsForNode %s", node.Name)
+	}
+
+	pass := s.filtersDefinitions.NodeAndPodsFilter(node, pods)
+	return pass, nil
 }
 
 func (s *DrainoConfigurationObserverImpl) processQueueForNodeUpdates() {
