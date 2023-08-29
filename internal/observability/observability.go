@@ -545,12 +545,14 @@ func (s *DrainoConfigurationObserverImpl) getConfigLabelUpdate(node *v1.Node) (s
 	}
 	kubernetes.LogForVerboseNode(s.logger, node, "InScope information", zap.Bool("inScope", inScope), zap.String("reason", reason))
 
-	inScopeNext, err := s.IsInScopeNext(node)
-	if err != nil {
-		s.logger.Info("failed to run new filter", zap.Error(err))
-	} else if inScopeNext != inScope {
-		s.logger.Info("in scope would change with new filter", zap.String("nodeName", node.Name),
-			zap.Bool("inScope", inScope), zap.Bool("inScopeNext", inScopeNext))
+	if s.filtersDefinitions.NodeAndPodsFilter != nil {
+		inScopeNext, err := s.IsInScopeNext(node)
+		if err != nil {
+			s.logger.Info("failed to run new filter", zap.Error(err))
+		} else if inScopeNext != inScope {
+			s.logger.Info("in scope would change with new filter", zap.String("nodeName", node.Name),
+				zap.Bool("inScope", inScope), zap.Bool("inScopeNext", inScopeNext))
+		}
 	}
 
 	if inScope {
