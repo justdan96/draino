@@ -9,12 +9,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/pointer"
 
 	"github.com/planetlabs/draino/internal/kubernetes"
 )
@@ -463,6 +465,109 @@ func TestPVCStorageClassCleanupEnabled(t *testing.T) {
 			defer closingFunc()
 
 			assert.Equalf(t, tt.want, kubernetes.PVCStorageClassCleanupEnabled(tt.p, store, tt.defaultTrueIfNoEvictionUrl), "PVCStorageClassCleanupEnabled test=%s", tt.name)
+		})
+	}
+}
+
+func TestInScopeNext_NodeAndPodsFilterFalse(t *testing.T) {
+	log, _ := zap.NewDevelopment()
+	node := &v1.Node{ObjectMeta: meta.ObjectMeta{Name: "my-node"}}
+	makePod := func(controlledBySTS bool, annotated bool) *v1.Pod {
+		p := &v1.Pod{
+			ObjectMeta: meta.ObjectMeta{
+				Name:      "my-pod",
+				Namespace: "my-namespace",
+			},
+			Spec: v1.PodSpec{
+				NodeName: "my-node",
+			},
+		}
+		if controlledBySTS {
+			p.OwnerReferences = []meta.OwnerReference{{
+				Kind:       "StatefulSet",
+				Name:       "my-sts",
+				Controller: pointer.Bool(true),
+			}}
+		}
+		if annotated {
+			p.Annotations = map[string]string{
+				kubernetes.NodeNLAEnableLabelKey: "true",
+			}
+		}
+		return p
+	}
+	makeSTS := func(annotated bool) *appsv1.StatefulSet {
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: meta.ObjectMeta{
+				Name:      "my-sts",
+				Namespace: "my-namespace",
+			},
+		}
+		if annotated {
+			sts.Annotations = map[string]string{
+				kubernetes.NodeNLAEnableLabelKey: "true",
+			}
+		}
+		return sts
+	}
+	tests := []struct {
+		name string
+		node *v1.Node
+		pod  *v1.Pod
+		sts  *appsv1.StatefulSet
+		ok   bool
+	}{
+		{
+			name: "no pod",
+			ok:   true,
+		},
+		{
+			name: "no sts pod",
+			pod:  makePod(false, false),
+			ok:   true,
+		},
+		{
+			name: "sts pod annotated",
+			pod:  makePod(true, true),
+			ok:   true,
+		},
+		{
+			name: "sts pod, sts annotated",
+			pod:  makePod(true, false),
+			sts:  makeSTS(true),
+			ok:   true,
+		},
+		{
+			name: "sts pod, sts not annotated",
+			pod:  makePod(true, false),
+			sts:  makeSTS(false),
+			ok:   false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			objects := []runtime.Object{node}
+			if tc.pod != nil {
+				objects = append(objects, tc.pod)
+			}
+			if tc.sts != nil {
+				objects = append(objects, tc.sts)
+			}
+			k := fake.NewSimpleClientset(objects...)
+			store, closeFunc := kubernetes.RunStoreForTest(context.Background(), k)
+			defer closeFunc()
+			obs := &DrainoConfigurationObserverImpl{
+				runtimeObjectStore: store,
+				filtersDefinitions: kubernetes.FiltersDefinitions{
+					NodeAndPodsFilter: func(node *v1.Node, pods []*v1.Pod) bool {
+						return false
+					},
+				},
+				logger: log,
+			}
+			ok, err := obs.IsInScopeNext(node)
+			require.NoError(t, err)
+			require.Equal(t, tc.ok, ok)
 		})
 	}
 }
