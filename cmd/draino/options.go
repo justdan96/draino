@@ -158,7 +158,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringSliceVar(&opt.storageClassesAllowingVolumeDeletion, "storage-class-allows-pv-deletion", []string{}, "Storage class for which persistent volume (and associated claim) deletion is allowed. May be specified multiple times.")
 
 	fs.StringVar(&opt.nodeLabelsExpr, "node-label-expr", "", "Nodes that match this expression will be eligible for tainting and draining.")
-	fs.StringVar(&opt.nodeAndPodsExpr, "node-and-pods-expr", "", "If a node and its pods match this expression, the node will be eligible for tainting and draining.")
+	fs.StringVar(&opt.nodeAndPodsExpr, "node-and-pods-expr", "", "(For now, only log diff with other filters) If a node and its pods match this expression, the node is eligible for tainting and draining. If not, the node is eligible unless any of its pods belongs to a statefulset, and neither the pod nor the statefulset is annotated with node-lifecycle.datadoghq.com/enabled=true.")
 	fs.StringVar(&opt.listen, "listen", ":10002", "Address at which to expose /metrics and /healthz.")
 	fs.StringVar(&opt.kubecfg, "kubeconfig", "", "Path to kubeconfig file. Leave unset to use in-cluster config.")
 	fs.StringVar(&opt.apiserver, "master", "", "Address of Kubernetes API server. Leave unset to use in-cluster config.")
