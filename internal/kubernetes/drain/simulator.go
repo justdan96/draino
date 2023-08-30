@@ -195,7 +195,7 @@ func (sim *drainSimulatorImpl) SimulatePodDrain(ctx context.Context, pod *corev1
 
 	if !sim.rateLimiter.TryAccept() {
 		sim.logger.V(logs.ZapDebug).Info("Drain simulation aborted due to rate limiting.")
-		return false, "", &k8sclient.ClientSideRateLimit{}
+		return false, "simulation rate limit", &k8sclient.ClientSideRateLimit{}
 	}
 
 	var node corev1.Node
@@ -227,7 +227,7 @@ func (sim *drainSimulatorImpl) checkPDBs(ctx context.Context, pod *corev1.Pod) (
 	var reason string
 	pdbs, err := sim.pdbIndexer.GetPDBsForPods(ctx, []*corev1.Pod{pod})
 	if err != nil {
-		return false, "", err
+		return false, "failed to fetch pod PDB", err
 	}
 
 	// If there is more than one PDB associated to the given pod, the eviction will fail for sure due to the APIServer behaviour.
