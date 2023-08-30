@@ -171,8 +171,14 @@ func TestScopeObserverImpl_GetLabelUpdate(t *testing.T) {
 				kclient:            kclient,
 				runtimeObjectStore: runtimeObjectStore,
 				globalConfig:       kubernetes.GlobalConfig{ConfigName: tt.configName},
-				filtersDefinitions: kubernetes.FiltersDefinitions{NodeLabelFilter: tt.nodeFilterFunc, CandidatePodFilter: tt.podFilterFunc},
-				logger:             zap.NewNop(),
+				filtersDefinitions: kubernetes.FiltersDefinitions{
+					NodeLabelFilter:    tt.nodeFilterFunc,
+					CandidatePodFilter: tt.podFilterFunc,
+					NodeAndPodsFilter: func(node *v1.Node, pods []*v1.Pod) bool {
+						return true
+					},
+				},
+				logger: zap.NewNop(),
 			}
 
 			wait.PollImmediate(200*time.Millisecond, 5*time.Second, func() (done bool, err error) {
@@ -357,8 +363,14 @@ func TestScopeObserverImpl_updateNodeAnnotationsAndLabels(t *testing.T) {
 					ConfigName:         tt.configName,
 					SuppliedConditions: suppliedConditions,
 				},
-				filtersDefinitions: kubernetes.FiltersDefinitions{NodeLabelFilter: tt.nodeFilterFunc, CandidatePodFilter: kubernetes.NewPodFilters()},
-				logger:             zap.NewNop(),
+				filtersDefinitions: kubernetes.FiltersDefinitions{
+					NodeLabelFilter:    tt.nodeFilterFunc,
+					CandidatePodFilter: kubernetes.NewPodFilters(),
+					NodeAndPodsFilter: func(node *v1.Node, pods []*v1.Pod) bool {
+						return true
+					},
+				},
+				logger: zap.NewNop(),
 			}
 			err = s.patchNodeLabels(tt.nodeName)
 			if err == nil && tt.wantErr {

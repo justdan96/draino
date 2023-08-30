@@ -69,19 +69,21 @@ func NewNodeLabelFilter(expressionStr string, log *zap.Logger) (NodeLabelFilterF
 }
 
 func NewNodeAndPodsFilter(expressionStr string, log *zap.Logger) (NodeAndPodsFilterFunc, error) {
+	if expressionStr == "" {
+		return func(node *core.Node, pods []*core.Pod) bool {
+			return true
+		}, nil
+	}
+
 	expression, err := expr.Compile(expressionStr)
-	if err != nil && expressionStr != "" {
-		return nil, err
+	if err != nil {
+		return nil, fmt.Errorf("cannot compile expression")
 	}
 
 	return func(node *core.Node, pods []*core.Pod) bool {
-		if expressionStr == "" {
-			return true
-		}
-
 		nodeUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(node)
 		if err != nil {
-			log.Error("Could not convert node to unstructured", zap.Error(err))
+			log.Error("Could not convert node to unstructured", zap.Error(err), zap.String("nodeName", node.Name))
 			return false
 		}
 
@@ -89,7 +91,7 @@ func NewNodeAndPodsFilter(expressionStr string, log *zap.Logger) (NodeAndPodsFil
 		for i, pod := range pods {
 			podUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod)
 			if err != nil {
-				log.Error("Could not convert pod to unstructured", zap.Error(err))
+				log.Error("Could not convert pod to unstructured", zap.Error(err), zap.String("podName", pod.Name))
 				return false
 			}
 			podsUnstruct[i] = podUnstruct
@@ -102,7 +104,7 @@ func NewNodeAndPodsFilter(expressionStr string, log *zap.Logger) (NodeAndPodsFil
 
 		result, err := expr.Run(expression, parameters)
 		if err != nil {
-			log.Error("Could not parse expression", zap.Error(err))
+			log.Error("Could not run expression", zap.Error(err))
 			return false
 		}
 		return result.(bool)

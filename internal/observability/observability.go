@@ -632,9 +632,6 @@ func (s *DrainoConfigurationObserverImpl) IsInScope(node *v1.Node) (inScope bool
 }
 
 func (s *DrainoConfigurationObserverImpl) IsInScopeNext(node *v1.Node) (bool, error) {
-	if s.filtersDefinitions.NodeAndPodsFilter == nil {
-		return true, nil
-	}
 	pods, err := s.runtimeObjectStore.Pods().ListPodsForNode(node.Name)
 	if err != nil {
 		return false, fmt.Errorf("cannot ListPodsForNode %s", node.Name)
