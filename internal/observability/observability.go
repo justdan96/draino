@@ -550,8 +550,12 @@ func (s *DrainoConfigurationObserverImpl) getConfigLabelUpdate(node *v1.Node) (s
 	if err != nil {
 		s.logger.Info("failed to run new filter", zap.Error(err))
 	} else if inScopeNext != inScope {
-		s.logger.Info("in scope would change with new filter", zap.String("nodeName", node.Name),
-			zap.Bool("inScope", inScope), zap.Bool("inScopeNext", inScopeNext))
+		s.logger.Info("in scope would change with new filter",
+			zap.String("nodeName", node.Name),
+			zap.String("nodegroupName", node.Labels[kubernetes.LabelKeyNodeGroupName]),
+			zap.String("nodegroupNamespace", node.Labels[kubernetes.LabelKeyNodeGroupNamespace]),
+			zap.Bool("inScope", inScope),
+			zap.Bool("inScopeNext", inScopeNext))
 	}
 
 	if inScope {
