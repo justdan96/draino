@@ -15,7 +15,7 @@ func NewNodeWithConditionFilter(conditions []kubernetes.SuppliedCondition) Filte
 			if len(badConditions) == 0 {
 				return false, "no_condition"
 			}
-			badConditionsStr := kubernetes.GetConditionsTypes(badConditions)
+			badConditionsStr := kubernetes.GetConditionsDisplayNames(badConditions)
 			if !kubernetes.AtLeastOneConditionAcceptedByTheNode(badConditionsStr, n) {
 				return false, "no_allowed_condition"
 			}

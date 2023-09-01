@@ -232,7 +232,7 @@ func (runner *candidateRunner) areCircuitBreakersOk() bool {
 func (runner *candidateRunner) hasConditionRateLimitingCapacity(node *corev1.Node) bool {
 	conditions := kubernetes.GetNodeOffendingConditions(node, runner.suppliedConditions)
 	for _, condition := range conditions {
-		if runner.rateLimiter.TryAccept(string(condition.Type)) {
+		if runner.rateLimiter.TryAccept(string(condition.DisplayName)) {
 			return true
 		}
 	}
