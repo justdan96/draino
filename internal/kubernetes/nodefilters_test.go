@@ -428,25 +428,25 @@ func TestParseConditions(t *testing.T) {
 		{
 			name:       "OldFormat",
 			conditions: []string{"Ready"},
-			expect:     []SuppliedCondition{{Type: core.NodeConditionType("Ready"), Status: core.ConditionStatus("True"), parsedDelay: 0, parsedExpectedResolutionTime: DefaultExpectedResolutionTime}},
+			expect:     []SuppliedCondition{{DisplayName: "Ready", Type: core.NodeConditionType("Ready"), Status: core.ConditionStatus("True"), parsedDelay: 0, parsedExpectedResolutionTime: DefaultExpectedResolutionTime}},
 		},
 		{
 			name:       "Mixed",
 			conditions: []string{"Ready", `OutOfDisk={ "delay":"10m"}`},
 			expect: []SuppliedCondition{
-				{Type: core.NodeConditionType("Ready"), Status: core.ConditionStatus("True"), parsedDelay: 0, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
-				{Type: core.NodeConditionType("OutOfDisk"), Status: core.ConditionStatus("True"), parsedDelay: 10 * time.Minute, Delay: "10m", parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{DisplayName: "Ready", Type: core.NodeConditionType("Ready"), Status: core.ConditionStatus("True"), parsedDelay: 0, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{DisplayName: "OutOfDisk", Type: core.NodeConditionType("OutOfDisk"), Status: core.ConditionStatus("True"), parsedDelay: 10 * time.Minute, Delay: "10m", parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
 			name:       "NewFormat",
-			conditions: []string{`Ready={"conditionStatus":"Unknown","delay":"30m"}`},
-			expect:     []SuppliedCondition{{Type: core.NodeConditionType("Ready"), Status: core.ConditionStatus("Unknown"), parsedDelay: 30 * time.Minute, Delay: "30m", parsedExpectedResolutionTime: DefaultExpectedResolutionTime}},
+			conditions: []string{`ready-unknown={"type":"Ready","conditionStatus":"Unknown","delay":"30m"}`},
+			expect:     []SuppliedCondition{{DisplayName: "ready-unknown", Type: core.NodeConditionType("Ready"), Status: core.ConditionStatus("Unknown"), parsedDelay: 30 * time.Minute, Delay: "30m", parsedExpectedResolutionTime: DefaultExpectedResolutionTime}},
 		},
 		{
 			name:       "NewFormatWithExpectedResolutionTime",
 			conditions: []string{`Ready={"conditionStatus":"Unknown","delay":"30m","expectedResolutionTime":"24h"}`},
-			expect:     []SuppliedCondition{{Type: core.NodeConditionType("Ready"), Status: core.ConditionStatus("Unknown"), parsedDelay: 30 * time.Minute, Delay: "30m", parsedExpectedResolutionTime: 24 * time.Hour, ExpectedResolutionTime: "24h"}},
+			expect:     []SuppliedCondition{{DisplayName: "Ready", Type: core.NodeConditionType("Ready"), Status: core.ConditionStatus("Unknown"), parsedDelay: 30 * time.Minute, Delay: "30m", parsedExpectedResolutionTime: 24 * time.Hour, ExpectedResolutionTime: "24h"}},
 		},
 		{
 			name:       "FormatError",
