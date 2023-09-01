@@ -34,6 +34,7 @@ type FilterOptions struct {
 	ShortLivedPodAnnotations               []string
 	NodeLabels                             []string
 	NodeLabelsExpr                         string
+	NodeAndPodsExpr                        string
 }
 
 type FiltersDefinitions struct {
@@ -44,6 +45,8 @@ type FiltersDefinitions struct {
 
 	// NodeLabelFilter, Is the node eligible (label checks only) ?
 	NodeLabelFilter NodeLabelFilterFunc
+	// NodeAndPodsFilter will soon replace NodeLabelFilter and CandidatePodFilter. For now, differences are logged.
+	NodeAndPodsFilter NodeAndPodsFilterFunc
 }
 
 func GenerateFilters(cs *kubernetes.Clientset, store RuntimeObjectStore, log *zap.Logger, options FilterOptions) (FiltersDefinitions, error) {
@@ -126,9 +129,15 @@ func GenerateFilters(cs *kubernetes.Clientset, store RuntimeObjectStore, log *za
 		return FiltersDefinitions{}, fmt.Errorf("Failed to parse node label expression: %v", err)
 	}
 
+	nodeAndPodsFilterFunc, err := NewNodeAndPodsFilter(options.NodeAndPodsExpr, log)
+	if err != nil {
+		return FiltersDefinitions{}, fmt.Errorf("failed to parse node and pods expression: %v", err)
+	}
+
 	return FiltersDefinitions{
 		CandidatePodFilter: podFilteringFunc,
 		DrainPodFilter:     drainerSkipPodFilter,
 		NodeLabelFilter:    nodeLabelFilterFunc,
+		NodeAndPodsFilter:  nodeAndPodsFilterFunc,
 	}, nil
 }

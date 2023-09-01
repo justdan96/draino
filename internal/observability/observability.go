@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	client "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/flowcontrol"
@@ -544,6 +545,19 @@ func (s *DrainoConfigurationObserverImpl) getConfigLabelUpdate(node *v1.Node) (s
 		return "", false, err
 	}
 	kubernetes.LogForVerboseNode(s.logger, node, "InScope information", zap.Bool("inScope", inScope), zap.String("reason", reason))
+
+	inScopeNext, err := s.IsInScopeNext(node)
+	if err != nil {
+		s.logger.Info("failed to run new filter", zap.Error(err))
+	} else if inScopeNext != inScope {
+		s.logger.Info("in scope would change with new filter",
+			zap.String("nodeName", node.Name),
+			zap.String("nodegroupName", node.Labels[kubernetes.LabelKeyNodeGroupName]),
+			zap.String("nodegroupNamespace", node.Labels[kubernetes.LabelKeyNodeGroupNamespace]),
+			zap.Bool("inScope", inScope),
+			zap.Bool("inScopeNext", inScopeNext))
+	}
+
 	if inScope {
 		configs = append(configs, s.globalConfig.ConfigName)
 	}
@@ -615,6 +629,34 @@ func (s *DrainoConfigurationObserverImpl) IsInScope(node *v1.Node) (inScope bool
 		}
 	}
 	return true, "", nil
+}
+
+func (s *DrainoConfigurationObserverImpl) IsInScopeNext(node *v1.Node) (bool, error) {
+	pods, err := s.runtimeObjectStore.Pods().ListPodsForNode(node.Name)
+	if err != nil {
+		return false, fmt.Errorf("cannot ListPodsForNode %s", node.Name)
+	}
+	pass := s.filtersDefinitions.NodeAndPodsFilter(node, pods)
+	if pass {
+		return true, nil
+	}
+	for _, pod := range pods {
+		ctrl := meta.GetControllerOf(pod)
+		if ctrl == nil || ctrl.Kind != "StatefulSet" {
+			continue
+		}
+		if pod.Annotations[kubernetes.NodeNLAEnableLabelKey] == "true" {
+			continue
+		}
+		sts, err := s.runtimeObjectStore.StatefulSets().Get(pod.Namespace, ctrl.Name)
+		if err != nil {
+			return false, fmt.Errorf("cannot get statefulset for pod %s on node %s", pod.Name, node.Name)
+		}
+		if sts.Annotations[kubernetes.NodeNLAEnableLabelKey] != "true" {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (s *DrainoConfigurationObserverImpl) processQueueForNodeUpdates() {

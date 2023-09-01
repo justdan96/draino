@@ -41,7 +41,7 @@ require (
 	github.com/DataDog/compute-go v1.9.0
 	github.com/DataDog/datadog-api-client-go/v2 v2.15.0
 	github.com/DataDog/go-service-authn v1.3.0
-	github.com/antonmedv/expr v1.8.8
+	github.com/antonmedv/expr v1.14.3
 	github.com/go-logr/logr v1.2.4
 	github.com/go-logr/zapr v1.2.4
 	github.com/go-test/deep v1.0.2

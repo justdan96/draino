@@ -34,6 +34,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
+
 	"github.com/planetlabs/draino/internal/kubernetes/k8sclient"
 
 	"github.com/DataDog/go-service-authn/pkg/serviceauthentication/authnclient"
