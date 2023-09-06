@@ -231,7 +231,7 @@ func (h *CLICommands) cmdGroupNodes() error {
 		}
 		var conditions []string
 		for _, c := range item.Conditions {
-			conditions = append(conditions, string(c.Type))
+			conditions = append(conditions, string(c.ID))
 		}
 		return []string{
 			item.Node,

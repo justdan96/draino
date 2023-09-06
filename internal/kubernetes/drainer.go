@@ -754,7 +754,7 @@ func (d *APIDrainer) evictWithOperatorAPI(ctx context.Context, url string, node 
 	span, ctx := tracer.StartSpanFromContext(ctx, "evictWithKubernetesAPI")
 	defer span.Finish()
 
-	conditions := GetConditionsTypes(GetNodeOffendingConditions(node, d.globalConfig.SuppliedConditions))
+	conditions := GetConditionIDs(GetNodeOffendingConditions(node, d.globalConfig.SuppliedConditions))
 	d.l.Info("using custom eviction endpoint", zap.String("pod", pod.Namespace+"/"+pod.Name), zap.String("endpoint", url))
 	maxRetryOn500 := 4
 	return d.evictionSequence(ctx, node, pod, abort,

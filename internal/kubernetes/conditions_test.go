@@ -25,7 +25,7 @@ func TestOffendingConditions(t *testing.T) {
 				}},
 			},
 			conditions: []string{"Cool"},
-			expected:   []SuppliedCondition{{Type: "Cool", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime}},
+			expected:   []SuppliedCondition{{ID: "Cool", Type: "Cool", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime}},
 		},
 		{
 			name: "ManyMatchingConditions",
@@ -38,8 +38,8 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{"Cool", "Rad"},
 			expected: []SuppliedCondition{
-				{Type: "Cool", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
-				{Type: "Rad", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{ID: "Cool", Type: "Cool", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{ID: "Rad", Type: "Rad", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
@@ -53,7 +53,7 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{"Cool", "Rad"},
 			expected: []SuppliedCondition{
-				{Type: "Cool", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{ID: "Cool", Type: "Cool", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
@@ -66,7 +66,7 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{"Cool", "Rad"},
 			expected: []SuppliedCondition{
-				{Type: "Rad", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{ID: "Rad", Type: "Rad", Status: core.ConditionTrue, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
@@ -104,9 +104,9 @@ func TestOffendingConditions(t *testing.T) {
 					{Type: "Cool", Status: core.ConditionUnknown},
 				}},
 			},
-			conditions: []string{`Cool={"conditionStatus":"Unknown", "delay":"10m"}`},
+			conditions: []string{`Cool-id={"type": "Cool","conditionStatus":"Unknown", "delay":"10m"}`},
 			expected: []SuppliedCondition{
-				{Type: "Cool", Status: core.ConditionUnknown, parsedDelay: 10 * time.Minute, Delay: "10m", parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{ID: "Cool-id", Type: "Cool", Status: core.ConditionUnknown, parsedDelay: 10 * time.Minute, Delay: "10m", parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 		{
@@ -130,7 +130,7 @@ func TestOffendingConditions(t *testing.T) {
 			},
 			conditions: []string{`Cool={"conditionStatus":"Unknown", "delay":"14m","priority":99}`},
 			expected: []SuppliedCondition{
-				{Type: "Cool", Status: core.ConditionUnknown, parsedDelay: 14 * time.Minute, Delay: "14m", Priority: 99, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
+				{ID: "Cool", Type: "Cool", Status: core.ConditionUnknown, parsedDelay: 14 * time.Minute, Delay: "14m", Priority: 99, parsedExpectedResolutionTime: DefaultExpectedResolutionTime},
 			},
 		},
 	}

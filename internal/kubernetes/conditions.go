@@ -1,15 +1,12 @@
 package kubernetes
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/planetlabs/draino/internal/limit"
 
-	"go.opencensus.io/stats"
-	"go.opencensus.io/tag"
 	core "k8s.io/api/core/v1"
 )
 
@@ -19,6 +16,11 @@ const DefaultDrainRateLimitBurst = 1
 
 // SuppliedCondition defines the condition will be watched.
 type SuppliedCondition struct {
+	// ID is a unique identifier for this condition, must be
+	// * human readable
+	// * usable as a metric tag value
+	ID string `json:"id"`
+
 	Type   core.NodeConditionType `json:"type"`
 	Status core.ConditionStatus   `json:"conditionStatus"`
 	// Draino starts acting on a node with this condition after Delay has elapsed.
@@ -66,20 +68,12 @@ func IsOverdue(n *core.Node, suppliedCondition SuppliedCondition) bool {
 	return false
 }
 
-func GetConditionsTypes(conditions []SuppliedCondition) []string {
+func GetConditionIDs(conditions []SuppliedCondition) []string {
 	result := make([]string, len(conditions))
 	for i := range conditions {
-		result[i] = string(conditions[i].Type)
+		result[i] = string(conditions[i].ID)
 	}
 	return result
-}
-
-func StatRecordForEachCondition(ctx context.Context, node *core.Node, conditions []SuppliedCondition, m stats.Measurement) {
-	tagsWithNg, _ := nodeTags(ctx, node)
-	for _, c := range GetConditionsTypes(conditions) {
-		tags, _ := tag.New(tagsWithNg, tag.Upsert(TagConditions, c))
-		stats.Record(tags, m)
-	}
 }
 
 func ParseConditions(conditions []string) ([]SuppliedCondition, error) {
@@ -90,11 +84,15 @@ func ParseConditions(conditions []string) ([]SuppliedCondition, error) {
 			// Keep backward compatibility
 			ts = []string{c, "{}"}
 		}
+		var id string = ts[0]
 		var condition SuppliedCondition
 		if err := json.Unmarshal([]byte(ts[1]), &condition); err != nil {
 			return nil, err
 		}
-		condition.Type = core.NodeConditionType(ts[0])
+		condition.ID = id
+		if condition.Type == "" {
+			condition.Type = core.NodeConditionType(id)
+		}
 		if condition.Delay != "" {
 			var errParse error
 			if condition.parsedDelay, errParse = time.ParseDuration(condition.Delay); errParse != nil {
@@ -121,7 +119,7 @@ func ParseConditions(conditions []string) ([]SuppliedCondition, error) {
 func GetRateLimitConfiguration(conditions []SuppliedCondition) map[string]limit.RateLimiterConfiguration {
 	m := map[string]limit.RateLimiterConfiguration{}
 	for _, c := range conditions {
-		m[string(c.Type)] = limit.RateLimiterConfiguration{
+		m[string(c.ID)] = limit.RateLimiterConfiguration{
 			QPS:   c.RateLimitQPS,
 			Burst: c.RateLimitBurst,
 		}

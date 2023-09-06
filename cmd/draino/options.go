@@ -168,7 +168,7 @@ func optionsFromFlags() (*Options, *pflag.FlagSet) {
 	fs.StringToStringVar(&opt.monitorCircuitBreakerMonitorTags, "circuit-breaker-monitor-tags", map[string]string{"cluster-autoscaler": "draino-circuit-breaker,cluster-autoscaler"}, "tags on monitors used for circuit breakers based on monitors. The keys are circuit breaker names, and the values are comma-separated lists of tags. Repeat the flag for multiple key-value pairs, i.e., multiple circuit breakers.")
 
 	// We are using some values with json content, so don't use StringSlice: https://github.com/spf13/pflag/issues/370
-	fs.StringArrayVar(&opt.conditions, "node-conditions", nil, "Nodes for which any of these conditions are true will be tainted and drained.")
+	fs.StringArrayVar(&opt.conditions, "node-conditions", nil, "A map from condition ID to node condition, when any of these conditions are true a node will be eligible for drain.")
 
 	fs.IntVar(&opt.maxDrainAttemptsBeforeFail, "max-drain-attempts-before-fail", 8, "Maximum number of failed drain attempts before giving-up on draining the node.")
 	fs.IntVar(&opt.maxNodeReplacementPerHour, "max-node-replacement-per-hour", 2, "Maximum number of nodes per hour for which draino can ask replacement.")

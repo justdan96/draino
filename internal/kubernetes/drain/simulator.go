@@ -309,7 +309,7 @@ func (sim *drainSimulatorImpl) simulateWithOperatorAPI(ctx context.Context, evic
 	span, ctx := tracer.StartSpanFromContext(ctx, "SimulatePodEvictionWithOperatorAPI")
 	defer span.Finish()
 
-	conditions := kubernetes.GetConditionsTypes(kubernetes.GetNodeOffendingConditions(node, sim.globalConfig.SuppliedConditions))
+	conditions := kubernetes.GetConditionIDs(kubernetes.GetNodeOffendingConditions(node, sim.globalConfig.SuppliedConditions))
 	_, err := kubernetes.CallOperatorAPI(ctx, sim.logger, evictionAPIUrl, pod, conditions, true, 1)
 	if err != nil {
 		sim.logger.V(logs.ZapDebug).Info("Error returned by simulation eviction", "pod", pod.Namespace+"/"+pod.Name, "err", err, "IsTooManyReq", apierrors.IsTooManyRequests(err), "IsForbidden", apierrors.IsForbidden(err), "Reason", apierrors.ReasonForError(err))

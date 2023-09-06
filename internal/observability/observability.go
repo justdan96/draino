@@ -342,7 +342,7 @@ func (s *DrainoConfigurationObserverImpl) Run(stop <-chan struct{}) {
 				}
 
 				// adding a virtual condition 'any' to be able to count the nodes whatever the condition(s) or absence of condition.
-				conditionsWithAll := append(kubernetes.GetConditionsTypes(conditions), metrics.TagConditionAnyValue)
+				conditionsWithAll := append(kubernetes.GetConditionIDs(conditions), metrics.TagConditionAnyValue)
 				for _, c := range conditionsWithAll {
 					t.Condition = c
 					t.Overdue = overdue[c]
@@ -467,7 +467,7 @@ func IsNewNodeMissingLabel(node *v1.Node, youngNodeDuration time.Duration) bool 
 }
 
 func NodeInScopeWithConditionCheck(conditions []kubernetes.SuppliedCondition, node *v1.Node) bool {
-	conditionsStr := kubernetes.GetConditionsTypes(conditions)
+	conditionsStr := kubernetes.GetConditionIDs(conditions)
 	return (len(node.Labels[ConfigurationLabelKey]) > 0 && node.Labels[ConfigurationLabelKey] != OutOfScopeLabelValue) && kubernetes.AtLeastOneConditionAcceptedByTheNode(conditionsStr, node)
 }
 
